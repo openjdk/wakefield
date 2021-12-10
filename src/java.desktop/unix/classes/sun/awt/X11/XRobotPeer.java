@@ -37,6 +37,11 @@ import sun.awt.X11GraphicsConfig;
 import sun.awt.X11GraphicsDevice;
 import sun.security.action.GetPropertyAction;
 
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
+import java.io.File;
+import java.io.IOException;
+
 @SuppressWarnings("removal")
 final class XRobotPeer implements RobotPeer {
 
@@ -50,6 +55,7 @@ final class XRobotPeer implements RobotPeer {
     }
     private static volatile boolean useGtk;
     private final X11GraphicsConfig  xgc;
+    private final boolean useDbusApi;
 
     XRobotPeer(X11GraphicsDevice gd) {
         xgc = (X11GraphicsConfig) gd.getDefaultConfiguration();
@@ -65,6 +71,35 @@ final class XRobotPeer implements RobotPeer {
         }
 
         useGtk = (tryGtk && isGtkSupported);
+
+        boolean isWayland = System.getenv("WAYLAND_DISPLAY") != null; //TODO improve wayland detection?
+
+        String property = System.getProperty("awt.robot.useDbusApi");
+        if (property != null) {
+            useDbusApi = useGtk && Boolean.parseBoolean(property);
+        } else {
+            useDbusApi = useGtk && isWayland;
+        }
+
+        System.out.printf("""
+                        Use DBUS API for screen capture: %b
+                        Property awt.robot.useDbusApi  : %s
+                        
+                        WAYLAND_DISPLAY                : %s
+                        DISPLAY                        : %s
+                        
+                        DBUS_SESSION_BUS_ADDRESS       : %s
+                        XDG_CURRENT_DESKTOP            : %s
+                        XDG_SESSION_TYPE               : %s
+                        
+                        """,
+                useDbusApi, property,
+                System.getenv("WAYLAND_DISPLAY"),
+                System.getenv("DISPLAY"),
+                System.getenv("DBUS_SESSION_BUS_ADDRESS"),
+                System.getenv("XDG_CURRENT_DESKTOP"),
+                System.getenv("XDG_SESSION_TYPE")
+        );
     }
 
     @Override
@@ -100,15 +135,23 @@ final class XRobotPeer implements RobotPeer {
     @Override
     public int getRGBPixel(int x, int y) {
         int[] pixelArray = new int[1];
-        getRGBPixelsImpl(xgc, x, y, 1, 1, pixelArray, useGtk);
+        if (useDbusApi) {
+            wlGetRGBPixelsImpl(x, y, 1, 1, pixelArray);
+        } else  {
+            getRGBPixelsImpl(xgc, x, y, 1, 1, pixelArray, useGtk);
+        }
         return pixelArray[0];
     }
 
     @Override
     public int [] getRGBPixels(Rectangle bounds) {
         int[] pixelArray = new int[bounds.width*bounds.height];
-        getRGBPixelsImpl(xgc, bounds.x, bounds.y, bounds.width, bounds.height,
-                            pixelArray, useGtk);
+        if (useDbusApi) {
+            wlGetRGBPixelsImpl(bounds.x, bounds.y, bounds.width, bounds.height, pixelArray);
+        } else {
+            getRGBPixelsImpl(xgc, bounds.x, bounds.y, bounds.width, bounds.height,
+                    pixelArray, useGtk);
+        }
         return pixelArray;
     }
 
@@ -124,5 +167,25 @@ final class XRobotPeer implements RobotPeer {
     private static synchronized native void keyReleaseImpl(int keycode);
 
     private static synchronized native void getRGBPixelsImpl(X11GraphicsConfig xgc,
-            int x, int y, int width, int height, int[] pixelArray, boolean isGtkSupported);
+                                                             int x, int y,
+                                                             int width, int height,
+                                                             int[] pixelArray,
+                                                             boolean isGtkSupported);
+
+    private static native String _wlGetRGBPixelsImpl(int x, int y, int width, int height); // , int[] pixelArray
+
+    private static synchronized void wlGetRGBPixelsImpl(int x, int y, int width, int height, int[] pixelArray) {
+        var path = _wlGetRGBPixelsImpl(x, y, width, height);
+        if (path != null) {
+           try {
+               File file = new File(path);
+               BufferedImage bImage = ImageIO.read(file);
+               bImage.getRGB(0, 0, width, height, pixelArray, 0, width);
+           } catch (IOException e) {
+               e.printStackTrace();
+           }
+        } else {
+           System.err.println("wlGetRGBPixelsImpl: Failed to get screenshot path.");
+        }
+    }
 }

@@ -368,6 +368,60 @@ static GList* (*fp_g_list_append) (GList *list, gpointer data);
 static void (*fp_g_list_free) (GList *list);
 static void (*fp_g_list_free_full) (GList *list, GDestroyNotify free_func);
 
+typedef struct _GVariant                      GVariant;
+typedef struct _GDBusProxy                    GDBusProxy;
+typedef enum {
+    G_DBUS_CALL_FLAGS_NONE = 0,
+    G_DBUS_CALL_FLAGS_NO_AUTO_START = (1<<0),
+    G_DBUS_CALL_FLAGS_ALLOW_INTERACTIVE_AUTHORIZATION = (1<<1)
+} GDBusCallFlags;
+typedef struct _GCancellable                  GCancellable;
+
+typedef enum
+{
+    G_BUS_TYPE_STARTER = -1,
+    G_BUS_TYPE_NONE = 0,
+    G_BUS_TYPE_SYSTEM  = 1,
+    G_BUS_TYPE_SESSION = 2
+} GBusType;
+
+typedef enum
+{
+    G_DBUS_PROXY_FLAGS_NONE = 0,
+    G_DBUS_PROXY_FLAGS_DO_NOT_LOAD_PROPERTIES = (1<<0),
+    G_DBUS_PROXY_FLAGS_DO_NOT_CONNECT_SIGNALS = (1<<1),
+    G_DBUS_PROXY_FLAGS_DO_NOT_AUTO_START = (1<<2),
+    G_DBUS_PROXY_FLAGS_GET_INVALIDATED_PROPERTIES = (1<<3),
+    G_DBUS_PROXY_FLAGS_DO_NOT_AUTO_START_AT_CONSTRUCTION = (1<<4)
+} GDBusProxyFlags;
+
+typedef struct _GDBusInterfaceInfo            GDBusInterfaceInfo;
+
+static GVariant* (*fp_g_dbus_proxy_call_sync)(GDBusProxy *proxy,
+                                    const gchar *method_name,
+                                    GVariant *parameters,
+                                    GDBusCallFlags flags,
+                                    gint timeout_msec,
+                                    GCancellable *cancellable,
+                                    GError **error);
+
+static GVariant* (*fp_g_variant_new)(const gchar *format_string, ...);
+
+static GDBusProxy *(*fp_g_dbus_proxy_new_for_bus_sync)(GBusType bus_type,
+                                                    GDBusProxyFlags flags,
+                                                    GDBusInterfaceInfo *info,
+                                                    const gchar *name,
+                                                    const gchar *object_path,
+                                                    const gchar *interface_name,
+                                                    GCancellable *cancellable,
+                                                    GError **error);
+
+static void (*fp_g_variant_get)(GVariant *value,
+                                 const gchar *format_string,
+                                 ...);
+static void (*fp_g_variant_unref)(GVariant             *value);
+static void (*fp_g_clear_error)(GError **err);
+
 static void (*fp_gdk_threads_enter)(void);
 static void (*fp_gdk_threads_leave)(void);
 

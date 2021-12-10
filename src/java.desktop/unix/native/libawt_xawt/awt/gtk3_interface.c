@@ -39,8 +39,13 @@
 #include <stdio.h>
 #include "awt.h"
 
+#include <sys/mman.h>
+#include <sys/time.h>
+#include <time.h>
+
 static void *gtk3_libhandle = NULL;
 static void *gthread_libhandle = NULL;
+static GDBusProxy* dbus_proxy;
 
 static jmp_buf j;
 
@@ -565,6 +570,13 @@ GtkApi* gtk3_load(JNIEnv *env, const char* lib_name)
         fp_g_list_append = dl_symbol("g_list_append");
         fp_g_list_free = dl_symbol("g_list_free");
         fp_g_list_free_full = dl_symbol("g_list_free_full");
+
+        fp_g_dbus_proxy_call_sync = dl_symbol("g_dbus_proxy_call_sync");
+        fp_g_variant_new = dl_symbol("g_variant_new");
+        fp_g_dbus_proxy_new_for_bus_sync = dl_symbol("g_dbus_proxy_new_for_bus_sync");
+        fp_g_variant_get = dl_symbol("g_variant_get");
+        fp_g_variant_unref = dl_symbol("g_variant_unref");
+        fp_g_clear_error = dl_symbol("g_clear_error");
     }
     /* Now we have only one kind of exceptions: NO_SYMBOL_EXCEPTION
      * Otherwise we can check the return value of setjmp method.
@@ -2928,6 +2940,116 @@ static GdkWindow* gtk3_get_window(void *widget) {
     return fp_gtk_widget_get_window((GtkWidget*)widget);
 }
 
+#define USE_SHM 1
+
+#ifdef USE_SHM
+gchar *SCREENSHOT_PATH = "/dev/shm/javaWaylandXXXXXX";
+gchar *SCREENSHOT_NAME_SHM = "/javaWaylandXXXXXX"; // TODO: new name for each screenshot or at least for every JVM instance
+#else
+gchar *SCREENSHOT_PATH = "/tmp/javaWlScreenshot.png";
+#endif
+
+static void initDbusProxy() {
+    GError *error = NULL;
+    dbus_proxy = fp_g_dbus_proxy_new_for_bus_sync(G_BUS_TYPE_SESSION,
+                                                  G_DBUS_PROXY_FLAGS_DO_NOT_AUTO_START,
+                                                  NULL,
+                                                  "org.gnome.Shell.Screenshot",
+                                                  "/org/gnome/Shell/Screenshot",
+                                                  "org.gnome.Shell.Screenshot",
+                                                  NULL, &error);
+    if (error) {
+        fprintf(stderr, "%s:%i fp_g_dbus_proxy_new_for_bus_sync error:\n%i %s\n", __FUNCTION__, __LINE__, error->code, error->message );
+        fp_g_clear_error(&error);
+        //TODO: gracefully handle it
+    }
+    if (dbus_proxy) {
+        error = NULL;
+        fp_g_dbus_proxy_call_sync(dbus_proxy, "org.freedesktop.DBus.Peer.Ping",
+                                  NULL,
+                                  G_DBUS_CALL_FLAGS_NONE,
+                                  -1, NULL, &error);
+        if (!error) {
+            return;
+        } else {
+            fprintf(stderr, "%s:%i Ping error:\n%i %s\n", __FUNCTION__, __LINE__, error->code, error->message);
+        }
+
+        fp_g_object_unref(dbus_proxy);
+        fp_g_clear_error(&error);
+        dbus_proxy = NULL;
+    }
+
+#ifdef USE_SHM
+    //TODO:
+    // Created a single file(in shared memory) here and it is reused for screenshot storage.
+    // Normally we should generate a new one for every screenshot, and shm_unlink() it after its data read on java side.
+
+    shm_unlink(SCREENSHOT_NAME_SHM);
+    int fd = shm_open(SCREENSHOT_NAME_SHM, O_RDWR | O_CREAT | O_EXCL, 0600);
+#endif
+}
+
+
+//#define MEASURE_API_CALL 1
+
+jstring gtk3_doScreenshot(JNIEnv *env, int x, int y, int width, int height) {
+    fp_gdk_threads_enter();
+
+    GVariant *apiResponse;
+    GError *err = NULL;
+
+#ifdef MEASURE_API_CALL
+    struct timespec before, after;
+    double elapsed_msecs;
+
+    clock_gettime(CLOCK_REALTIME, &before);
+#endif
+
+    apiResponse = fp_g_dbus_proxy_call_sync(
+            dbus_proxy,
+            "ScreenshotArea",
+            fp_g_variant_new("(iiiibs)",
+                             x, y, width, height,
+                             FALSE, /* flash */
+                             SCREENSHOT_PATH),
+            G_DBUS_CALL_FLAGS_NONE,
+            -1,
+            NULL,
+            &err);
+#ifdef MEASURE_API_CALL
+    clock_gettime(CLOCK_REALTIME, &after);
+
+    elapsed_msecs = (after.tv_sec - before.tv_sec) * 1000 +
+                    (after.tv_nsec - before.tv_nsec) / 1000000.0;
+
+    fprintf(stderr, "ScreenshotArea g_dbus_proxy_call_sync duration %f ms\n",
+            elapsed_msecs
+    );
+#endif
+
+    jstring retString = NULL;
+    if (!err) {
+        gchar *filename_used;
+        gboolean isSuccess;
+
+        fp_g_variant_get(apiResponse, "(bs)", &isSuccess, &filename_used);
+
+        if (isSuccess) {
+            retString = (*env)->NewStringUTF(env, filename_used);
+        } else {
+            fprintf(stderr, "%s:%i failed to save screenshot at %s\n", __FUNCTION__, __LINE__, SCREENSHOT_PATH);
+        }
+        fp_g_variant_unref(apiResponse);
+    } else {
+        fprintf(stderr, "%s:%i Error code: %i Error message: %s\n", __FUNCTION__, __LINE__, err->code, err->message);
+        fp_g_clear_error(&err);
+    }
+
+    fp_gdk_threads_leave();
+    return retString;
+}
+
 static void gtk3_init(GtkApi* gtk) {
     gtk->version = GTK_3;
 
@@ -3008,4 +3130,7 @@ static void gtk3_init(GtkApi* gtk) {
     gtk->g_list_append = fp_g_list_append;
     gtk->g_list_free = fp_g_list_free;
     gtk->g_list_free_full = fp_g_list_free_full;
+
+    initDbusProxy();
+    gtk->doScreenshot = &gtk3_doScreenshot;
 }

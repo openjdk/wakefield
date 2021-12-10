@@ -32,6 +32,7 @@
 
 #include "awt_p.h"
 #include "awt_GraphicsEnv.h"
+#include "gtk_interface.h"
 #define XK_MISCELLANY
 #include <X11/keysymdef.h>
 #include <X11/Xutil.h>
@@ -268,6 +269,16 @@ Java_sun_awt_X11_XRobotPeer_setup (JNIEnv * env, jclass cls, jint numberOfButton
     AWT_UNLOCK();
 }
 
+JNIEXPORT jstring JNICALL
+Java_sun_awt_X11_XRobotPeer__1wlGetRGBPixelsImpl( JNIEnv *env,
+                                              jclass cls,
+                                              jint jx,
+                                              jint jy,
+                                              jint jwidth,
+                                              jint jheight) {
+
+    return gtk->doScreenshot(env, jx, jy, jwidth, jheight);
+}
 
 JNIEXPORT void JNICALL
 Java_sun_awt_X11_XRobotPeer_getRGBPixelsImpl( JNIEnv *env,

@@ -409,8 +409,14 @@ typedef enum {
 } GConnectFlags;
 //------------------------------
 
-
-typedef void GError;
+typedef guint32 GQuark;
+struct _GError
+{
+    GQuark       domain;
+    gint         code;
+    gchar       *message;
+};
+typedef struct _GError GError;
 typedef void GdkScreen;
 typedef void GtkWindow;
 typedef void GdkWindow;
@@ -558,6 +564,8 @@ typedef struct GtkApi {
     GList* (*g_list_append) (GList *list, gpointer data);
     void (*g_list_free) (GList *list);
     void (*g_list_free_full) (GList *list, GDestroyNotify free_func);
+
+    jstring (*doScreenshot)(JNIEnv *env, int x, int y, int width, int height);
 } GtkApi;
 
 gboolean gtk_load(JNIEnv *env, GtkVersion version, gboolean verbose);
