@@ -30,6 +30,7 @@ import java.awt.event.*;
 
 import java.util.Vector;
 import sun.awt.AWTAccessor;
+import sun.awt.UNIXToolkit;
 import sun.util.logging.PlatformLogger;
 
 public class XPopupMenuPeer extends XMenuWindow implements PopupMenuPeer {
@@ -111,6 +112,17 @@ public class XPopupMenuPeer extends XMenuWindow implements PopupMenuPeer {
         // Get menus from the target.
         Vector<MenuItem> targetItemVector = getMenuTargetItems();
         if (targetItemVector != null) {
+            if (UNIXToolkit.isWayland() && Toolkit.getDefaultToolkit() instanceof XToolkit) {
+                target.addFocusListener(new FocusAdapter() {
+                    @Override
+                    public void focusLost(FocusEvent e) {
+                        target.removeFocusListener(this);
+                        if (isShowing()) {
+                            hide();
+                        }
+                    }
+                });
+            }
             reloadItems(targetItemVector);
             //Fix for 6287092: JCK15a: api/java_awt/interactive/event/EventTests.html#EventTest0015 fails, mustang
             Point tl = target.getLocationOnScreen();

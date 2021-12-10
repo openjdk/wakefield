@@ -72,13 +72,11 @@ final class XRobotPeer implements RobotPeer {
 
         useGtk = (tryGtk && isGtkSupported);
 
-        boolean isWayland = System.getenv("WAYLAND_DISPLAY") != null; //TODO improve wayland detection?
-
         String property = System.getProperty("awt.robot.useDbusApi");
         if (property != null) {
             useDbusApi = useGtk && Boolean.parseBoolean(property);
         } else {
-            useDbusApi = useGtk && isWayland;
+            useDbusApi = useGtk && UNIXToolkit.isWayland();
         }
 
         System.out.printf("""

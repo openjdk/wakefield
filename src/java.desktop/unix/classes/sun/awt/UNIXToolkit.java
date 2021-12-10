@@ -421,4 +421,10 @@ public abstract class UNIXToolkit extends SunToolkit
         return AccessController.doPrivileged((PrivilegedAction<Boolean>)()
                 -> Boolean.getBoolean("jdk.gtk.verbose"));
     }
+
+
+    public static boolean isWayland() {
+        //TODO improve wayland detection?
+        return System.getenv("WAYLAND_DISPLAY") != null;
+    }
 }
