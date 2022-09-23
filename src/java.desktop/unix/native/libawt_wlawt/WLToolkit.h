@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021, JetBrains s.r.o.. All rights reserved.
+ * Copyright (c) 2021, 2022, JetBrains s.r.o.. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,6 +25,14 @@
 
 #include <wayland-client.h>
 #include "xdg-shell-client-protocol.h"
+
+#define CHECK_NULL_THROW_OOME_RETURN(env, x, msg, z)\
+    do {                                        \
+        if ((x) == NULL) {                      \
+           JNU_ThrowOutOfMemoryError((env), (msg));\
+           return (z);                          \
+        }                                       \
+    } while(0)                                  \
 
 extern struct wl_display *wl_display;
 extern struct wl_shm *wl_shm;
