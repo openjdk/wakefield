@@ -29,6 +29,8 @@ import java.io.File;
 import java.awt.GraphicsEnvironment;
 import java.awt.Toolkit;
 import java.lang.annotation.Native;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.AccessController;
 import java.security.PrivilegedAction;
 
@@ -83,10 +85,28 @@ public class PlatformGraphicsInfo {
     public static boolean getDefaultHeadlessProperty() {
         boolean noDisplay =
             AccessController.doPrivileged((PrivilegedAction<Boolean>) () -> {
+               if (getToolkitID() == TK_X11) {
+                    final String display = System.getenv("DISPLAY");
+                    return display == null || display.trim().isEmpty();
+                } else {
+                    // This code needs to be in sync with what wl_display_connect() does
+                    // in WLToolkit.initIDs().
+                    final String wl_display = System.getenv("WAYLAND_DISPLAY");
+                    if (wl_display != null && !wl_display.trim().isEmpty()) {
+                        return false; // not headless
+                    }
 
-               final String display = System.getenv("DISPLAY");
-               return display == null || display.trim().isEmpty();
+                    // Check $XDG_RUNTIME_DIR/wayland-0.
+                    final String socketDir = System.getenv("XDG_RUNTIME_DIR");
+                    if (socketDir != null && !socketDir.trim().isEmpty()) {
+                        final Path defaultSocketPath = Path.of(socketDir).resolve("wayland-0");
+                        return !Files.isReadable(defaultSocketPath);
+                    }
+
+                    return true;
+                }
             });
+
         if (noDisplay) {
             return true;
         }
@@ -120,12 +140,22 @@ public class PlatformGraphicsInfo {
       * the application has called an API that requires headful.
       */
     public static String getDefaultHeadlessMessage() {
-        return
+        return (getToolkitID() == TK_X11)
+            ?
             """
 
             No X11 DISPLAY variable was set,
             or no headful library support was found,
             but this program performed an operation which requires it,
-            """;
+            """
+            :
+            """
+
+            Neither WAYLAND_DISPLAY variable was set
+            nor $XDG_RUNTIME_DIR/wayland-0 socket found,
+            nor headful library support was found,
+            but this program performed an operation which requires it,
+            """
+            ;
     }
 }
