@@ -119,6 +119,8 @@ apt_help() {
       PKGHANDLER_COMMAND="sudo apt-get install systemtap-sdt-dev" ;;
     capstone)
       PKGHANDLER_COMMAND="sudo apt-get install libcapstone-dev" ;;
+    pipewire)
+      PKGHANDLER_COMMAND="sudo apt-get install libpipewire-0.3-dev" ;;
   esac
 }
 
@@ -140,6 +142,9 @@ zypper_help() {
       PKGHANDLER_COMMAND="sudo zypper install libX11-devel libXext-devel libXrender-devel libXrandr-devel libXtst-devel libXt-devel libXi-devel" ;;
     ccache)
       PKGHANDLER_COMMAND="sudo zypper install ccache" ;;
+    # TODO
+    # pipewire)
+    #  PKGHANDLER_COMMAND="sudo zypper install " ;;
   esac
 }
 
@@ -161,6 +166,8 @@ yum_help() {
       PKGHANDLER_COMMAND="sudo yum install libXtst-devel libXt-devel libXrender-devel libXrandr-devel libXi-devel" ;;
     ccache)
       PKGHANDLER_COMMAND="sudo yum install ccache" ;;
+    pipewire)
+      PKGHANDLER_COMMAND="sudo yum install pipewire-devel.x86_64" ;;
   esac
 }
 

@@ -34,6 +34,7 @@
 #include <jni.h>
 #include <X11/X.h>
 #include "gtk_interface.h"
+#include "pipewire_related.h"
 
 #define LIGHTNESS_MULT  1.3
 #define DARKNESS_MULT   0.7
@@ -234,13 +235,6 @@ typedef struct {
   gushort   events;
   gushort   revents;
 } GPollFD;
-
-typedef struct {
-  gint x;
-  gint y;
-  gint width;
-  gint height;
-} GdkRectangle;
 
 typedef struct {
     int x, y;
@@ -496,14 +490,14 @@ static gboolean (*fp_gtk_style_context_has_class)(GtkStyleContext *context,
                      const gchar *class_name);
 static void transform_detail_string (const gchar *detail,
                      GtkStyleContext *context);
-void (*fp_gtk_style_context_set_junction_sides)(GtkStyleContext  *context,
+static void (*fp_gtk_style_context_set_junction_sides)(GtkStyleContext  *context,
                      GtkJunctionSides  sides);
-void (*fp_gtk_style_context_add_region)(GtkStyleContext *context,
+static void (*fp_gtk_style_context_add_region)(GtkStyleContext *context,
                      const gchar *region_name, GtkRegionFlags flags);
-void (*fp_gtk_render_arrow)(GtkStyleContext *context, cairo_t *cr,
+static void (*fp_gtk_render_arrow)(GtkStyleContext *context, cairo_t *cr,
                      gdouble angle, gdouble x, gdouble y, gdouble size);
-void (*fp_gtk_bin_set_child)(GtkBin *bin, GtkWidget *widget);
-void (*fp_gtk_scrolled_window_set_shadow_type)(
+static void (*fp_gtk_bin_set_child)(GtkBin *bin, GtkWidget *widget);
+static void (*fp_gtk_scrolled_window_set_shadow_type)(
                      GtkScrolledWindow *scrolled_window, GtkShadowType type);
 static void (*fp_gtk_render_slider)(GtkStyleContext *context, cairo_t *cr,
                      gdouble x, gdouble y, gdouble width, gdouble height,
@@ -522,7 +516,7 @@ static GdkPixbuf* (*fp_gtk_icon_theme_load_icon)(GtkIconTheme *icon_theme,
 static void (*fp_gtk_adjustment_set_lower)(GtkAdjustment *adjustment,
                      gdouble lower);
 static void (*fp_gtk_adjustment_set_page_increment)(GtkAdjustment *adjustment,
-                     gdouble page_increment);
+                                                    gdouble page_increment);
 static void (*fp_gtk_adjustment_set_page_size)(GtkAdjustment *adjustment,
                      gdouble page_size);
 static void (*fp_gtk_adjustment_set_step_increment)(GtkAdjustment *adjustment,
@@ -636,5 +630,157 @@ static void (*fp_gtk_style_context_set_path)
         (GtkStyleContext *context, GtkWidgetPath *path);
 static void (*fp_gtk_widget_path_unref) (GtkWidgetPath *path);
 static GtkStyleContext* (*fp_gtk_style_context_new) (void);
+
+static GVariant* (*fp_g_dbus_proxy_call_sync)(GDBusProxy *proxy,
+                                              const gchar *method_name,
+                                              GVariant *parameters,
+                                              GDBusCallFlags flags,
+                                              gint timeout_msec,
+                                              GCancellable *cancellable,
+                                              GError **error);
+
+static GVariant* (*fp_g_variant_new)(const gchar *format_string, ...);
+
+static GDBusProxy *(*fp_g_dbus_proxy_new_for_bus_sync)(GBusType bus_type,
+                                                GDBusProxyFlags flags,
+                                                GDBusInterfaceInfo *info,
+                                                const gchar *name,
+                                                const gchar *object_path,
+                                                const gchar *interface_name,
+                                                GCancellable *cancellable,
+                                                GError **error);
+
+static void (*fp_g_variant_get)(GVariant *value,
+                                const gchar *format_string,
+                                ...);
+static void (*fp_g_variant_unref)(GVariant             *value);
+static void (*fp_g_clear_error)(GError **err);
+
+static GString* (*fp_g_string_set_size)(GString *string,
+                                        gsize len);
+
+static GString* (*fp_g_string_append)(GString *string,
+                                      const gchar *val);
+static int     (*fp_g_strcmp0)(const char     *str1,
+                             const char     *str2);
+
+static const gchar *(*fp_g_variant_get_type_string)(GVariant *value);
+
+static const gchar *(*fp_g_variant_get_string)(GVariant *value,
+                                               gsize *length);
+
+static guint32 (*fp_g_variant_get_uint32)(GVariant *value);
+
+typedef void GVariantIter;
+typedef void GDBusConnection;
+typedef enum /*< flags >*/
+{
+    G_DBUS_SIGNAL_FLAGS_NONE = 0,
+    G_DBUS_SIGNAL_FLAGS_NO_MATCH_RULE = (1<<0),
+    G_DBUS_SIGNAL_FLAGS_MATCH_ARG0_NAMESPACE = (1<<1),
+    G_DBUS_SIGNAL_FLAGS_MATCH_ARG0_PATH = (1<<2)
+} GDBusSignalFlags;
+
+static GDBusConnection *(*fp_g_dbus_proxy_get_connection)            (GDBusProxy          *proxy);
+typedef void (*GDBusSignalCallback) (GDBusConnection  *connection,
+                                     const gchar      *sender_name,
+                                     const gchar      *object_path,
+                                     const gchar      *interface_name,
+                                     const gchar      *signal_name,
+                                     GVariant         *parameters,
+                                     gpointer          user_data);
+static guint (*fp_g_dbus_connection_signal_subscribe)(GDBusConnection *connection,
+                                                      const gchar *sender,
+                                                      const gchar *interface_name,
+                                                      const gchar *member,
+                                                      const gchar *object_path,
+                                                      const gchar *arg0,
+                                                      GDBusSignalFlags flags,
+                                                      GDBusSignalCallback callback,
+                                                      gpointer user_data,
+                                                      GDestroyNotify user_data_free_func);
+
+static void (*fp_g_dbus_connection_signal_unsubscribe)(GDBusConnection *connection,
+                                                guint subscription_id);
+
+
+
+static gboolean (*fp_g_variant_iter_loop)(GVariantIter *iter,
+                             const gchar *format_string,
+                             ...);
+static void (*fp_g_variant_iter_free)(GVariantIter *iter);
+
+//typedef void GVariantType;
+typedef struct _GVariantType GVariantType;
+typedef struct _GVariantBuilder GVariantBuilder;
+struct _GVariantBuilder {
+    /*< private >*/
+    union
+    {
+        struct {
+            gsize partial_magic;
+            const GVariantType *type;
+            gsize y[14];
+        } s;
+        gsize x[16];
+    } u;
+};
+
+
+static const GVariantType *            (*fp_g_variant_type_checked_)                 (const gchar *);
+#define G_VARIANT_TYPE(type_string)            (fp_g_variant_type_checked_ ((type_string)))
+#define G_VARIANT_TYPE_VARDICT              ((const GVariantType *) "a{sv}")
+
+static void (*fp_g_variant_builder_init)(GVariantBuilder *builder,
+                            const GVariantType *type);
+
+static void (*fp_g_variant_builder_add)(GVariantBuilder *builder,
+                           const gchar *format_string,
+                           ...);
+
+static GVariant *(*fp_g_variant_new_string)(const gchar *string);
+
+typedef signed long gssize;
+
+static GString *(*fp_g_string_new)(const gchar *init);
+
+static GString *(*fp_g_string_new_len)(const gchar *init,
+                                       gssize len);
+static gchar   *(*fp_g_string_free)              (GString         *string,
+                                                gboolean         free_segment);
+static GString *(*fp_g_string_assign)(GString         *string,
+                                      const gchar     *rval);
+
+static guint (*fp_g_string_replace)(GString *string,
+                                    const gchar *find,
+                                    const gchar *replace,
+                                    guint limit);
+
+static GVariant *(*fp_g_variant_new_uint32)(guint32 value);
+
+static GVariant *(*fp_g_variant_new_boolean)(gboolean value);
+
+typedef void GUnixFDList;
+
+static GVariant *(*fp_g_dbus_proxy_call_with_unix_fd_list_sync)(GDBusProxy *proxy,
+                                                   const gchar *method_name,
+                                                   GVariant *parameters,
+                                                   GDBusCallFlags flags,
+                                                   gint timeout_msec,
+                                                   GUnixFDList *fd_list,
+                                                   GUnixFDList **out_fd_list,
+                                                   GCancellable *cancellable,
+                                                   GError **error);
+
+static gint (*fp_g_unix_fd_list_get)(GUnixFDList *list,
+                               gint index_,
+                               GError **error);
+
+
+int getPipewireFd();
+
+void initRestoreToken();
+
+void errHandle(GError *error, int lineNum);
 
 #endif /* !_GTK3_INTERFACE_H */

@@ -108,7 +108,7 @@ typedef unsigned short gushort;
 typedef unsigned short guint16;
 typedef unsigned int   guint;
 typedef unsigned int   guint32;
-typedef unsigned int   gsize;
+typedef unsigned long   gsize;
 typedef unsigned long  gulong;
 typedef signed long long   gint64;
 typedef unsigned long long guint64;
@@ -127,6 +127,44 @@ struct _GSList {
   gpointer data;
   GSList *next;
 };
+
+typedef struct _GString         GString;
+
+struct _GString
+{
+    gchar  *str;
+    gsize len;
+    gsize allocated_len;
+};
+
+typedef struct _GVariant                      GVariant;
+typedef struct _GDBusProxy                    GDBusProxy;
+typedef enum {
+    G_DBUS_CALL_FLAGS_NONE = 0,
+    G_DBUS_CALL_FLAGS_NO_AUTO_START = (1<<0),
+    G_DBUS_CALL_FLAGS_ALLOW_INTERACTIVE_AUTHORIZATION = (1<<1)
+} GDBusCallFlags;
+typedef struct _GCancellable                  GCancellable;
+
+typedef enum
+{
+    G_BUS_TYPE_STARTER = -1,
+    G_BUS_TYPE_NONE = 0,
+    G_BUS_TYPE_SYSTEM  = 1,
+    G_BUS_TYPE_SESSION = 2
+} GBusType;
+
+typedef enum
+{
+    G_DBUS_PROXY_FLAGS_NONE = 0,
+    G_DBUS_PROXY_FLAGS_DO_NOT_LOAD_PROPERTIES = (1<<0),
+    G_DBUS_PROXY_FLAGS_DO_NOT_CONNECT_SIGNALS = (1<<1),
+    G_DBUS_PROXY_FLAGS_DO_NOT_AUTO_START = (1<<2),
+    G_DBUS_PROXY_FLAGS_GET_INVALIDATED_PROPERTIES = (1<<3),
+    G_DBUS_PROXY_FLAGS_DO_NOT_AUTO_START_AT_CONSTRUCTION = (1<<4)
+} GDBusProxyFlags;
+
+typedef struct _GDBusInterfaceInfo            GDBusInterfaceInfo;
 
 typedef enum {
     BUTTON,                     /* GtkButton */
@@ -409,14 +447,29 @@ typedef enum {
 } GConnectFlags;
 //------------------------------
 
+typedef guint32 GQuark;
+struct _GError
+{
+    GQuark       domain;
+    gint         code;
+    gchar       *message;
+};
+typedef struct _GError GError;
 
-typedef void GError;
 typedef void GdkScreen;
 typedef void GtkWindow;
 typedef void GdkWindow;
 typedef void GClosure;
 typedef void GtkFileChooser;
 typedef void GtkFileFilter;
+
+typedef struct {
+    gint x;
+    gint y;
+    gint width;
+    gint height;
+} GdkRectangle;
+
 typedef struct {
     GtkFileFilterFlags contains;
     const gchar *filename;

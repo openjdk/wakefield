@@ -38,11 +38,457 @@
 #include <jni_util.h>
 #include <stdio.h>
 #include <math.h>
+#include <pwd.h>
 #include "awt.h"
 #include "debug_assert.h"
 
 static void *gtk3_libhandle = NULL;
 static void *gthread_libhandle = NULL;
+
+/******** PORTALS ********/
+extern struct ScreenSpace monSpace;
+
+
+GString *tmp;
+GString *tokenStr;
+GString *sessionTokenStr;
+
+extern GString * restoreTokenPath;
+extern GString * restoreToken;
+
+void initRestoreToken() {
+    const char *homedir;
+
+    if ((homedir = getenv("HOME")) == NULL) {
+        homedir = getpwuid(getuid())->pw_dir;
+    }
+
+    restoreToken = fp_g_string_new("");
+    restoreTokenPath = fp_g_string_new(homedir);
+
+    // ~/.screencastToken
+    fp_g_string_append(restoreTokenPath, "/.screencastToken");
+    debug_screencast("%s:%i Restore token path: %s\n", __FUNCTION__, __LINE__, restoreTokenPath->str);
+}
+
+
+void errHandle(GError *error, int lineNum) {
+    if (error) {
+        fprintf(stderr, ":%i %s\n", lineNum, error->message);
+    } else {
+        debug_screencast(":%i Ok\n", lineNum);
+    }
+    error = NULL;
+}
+
+void genStr(char *dst, size_t length) {
+    char alphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+
+    while (length-- > 0) {
+        //TODO srand()?
+        size_t index = (double) rand() / RAND_MAX * (sizeof alphabet - 1);
+        *dst++ = alphabet[index];
+    }
+
+    *dst = '\0';
+}
+
+void tokenUpd() {
+    genStr(tmp->str, 8);
+    fp_g_string_set_size(tokenStr, 4);
+    fp_g_string_append(tokenStr, tmp->str);
+    debug_screencast("%s:%i newToken %s\n", __FUNCTION__, __LINE__, tokenStr->str);
+}
+
+void sessionTokenUpd() {
+    genStr(tmp->str, 8);
+    fp_g_string_set_size(sessionTokenStr, 5);
+    fp_g_string_append(sessionTokenStr, tmp->str);
+    debug_screencast("%s:%i newSessionToken %s\n", __FUNCTION__, __LINE__, sessionTokenStr->str);
+}
+
+volatile guint received = FALSE;
+
+
+int is(gchar* actual, const gchar* expected) {
+    return !fp_g_strcmp0(actual, expected);
+}
+
+void printType(gchar* name, GVariant* variant) {
+    if (!DEBUG_SCREENCAST_ENABLE) return;
+
+    const gchar * type = fp_g_variant_get_type_string(variant);
+
+    if (is("s", type)) {
+        gsize len;
+        fprintf(stderr, "name: %s type: %s value: %s\n",
+                name,
+                type,
+                fp_g_variant_get_string(variant, &len));
+    } else if (is("u", type)) {
+        fprintf(stderr, "name: %s type: %s value: %i\n",
+                name,
+                type,
+                fp_g_variant_get_uint32(variant ));
+
+
+    } else if (is("(ii)", type)) {
+        guint32 x,y;
+        fp_g_variant_get(variant, "(ii)", &x, &y);
+        fprintf(stderr, "name: %s \ntype: %s \nvalue: %i %i\n",
+                name,
+                type,
+                x,y);
+    } else {
+        fprintf(stderr, "name: %s\ntype: %s\n",
+                name,
+                fp_g_variant_get_type_string(variant));
+    }
+}
+
+void loadRestoreToken() {
+    int fd = open(restoreTokenPath->str, O_RDONLY);
+    debug_screencast("%s:%i ===== restoreTokenPath fd: %i\n", __FUNCTION__, __LINE__, fd);
+    if (fd > 0) {
+        long len = lseek(fd, 0, SEEK_END);
+        if (len == 36) { //TODO exact length 36?
+            gchar * data = (gchar *) malloc(len+1);
+            lseek(fd, 0, SEEK_SET);
+            size_t sz = read(fd, data, len);
+
+            if (data) {
+                close(fd);
+                //TODO restore token format validation
+                debug_screencast("%s:%i restore token from file len %i |%s|\n",
+                                 __FUNCTION__, __LINE__, sz, data);
+                fp_g_string_assign(restoreToken, data);
+            }
+            free(data);
+        } else {
+            fprintf(stderr, "%s:%i incorrect restore token stored in %s\n", __FUNCTION__, __LINE__, restoreTokenPath->str);
+        }
+        close(fd);
+    }
+}
+
+void saveRestoreToken(const gchar* token) {
+    int fd = open(restoreTokenPath->str, O_WRONLY | O_CREAT, S_IRUSR | S_IWUSR);
+    if (fd > 0) {
+        debug_screencast("%s:%i @@@@ saving restore token fd %i |%s|\n", __FUNCTION__, __LINE__,
+                         fd,
+                         token
+        );
+        write(fd, token, strlen(token));
+        close(fd);
+    } else {
+        fprintf(stderr, "%s:%i @@@@ cannot open restore token file for writing %s fd %i\n",
+                __FUNCTION__, __LINE__,
+                restoreTokenPath->str, fd);
+    }
+}
+
+void rebuildMonData(GVariantIter *iterStreams) {
+    guint32 nodeID;
+    GVariantIter *iterProps;
+
+    int iter = 0;
+
+    while (fp_g_variant_iter_loop(iterStreams, "(ua{sv})", &nodeID, &iterProps)) {
+        debug_screencast("%s:%i ==== nodeID: %i %p\n", __FUNCTION__, __LINE__, nodeID, iterProps);
+
+
+        if (iter >= monSpace.allocated) {
+            //TODO realloc failure?
+            monSpace.screens = realloc(monSpace.screens, ++monSpace.allocated * sizeof (struct ScreenProps));
+        }
+
+        struct ScreenProps * mon = &monSpace.screens[iter];
+        monSpace.screenCount = iter + 1;
+
+        mon->id = nodeID;
+
+        gchar *name = NULL;
+        GVariant *propVal;
+
+        while (fp_g_variant_iter_loop(iterProps, "{sv}", &name, &propVal)) {
+            debug_screencast("%s:%i ====      %s %p\n", __FUNCTION__, __LINE__, name, propVal);
+            printType(name, propVal);
+
+            if (!fp_g_strcmp0("size", name)) {
+                fp_g_variant_get(propVal, "(ii)", &mon->bounds.width, &mon->bounds.height);
+            } else if (!fp_g_strcmp0("position", name)) {
+                fp_g_variant_get(propVal, "(ii)", &mon->bounds.x, &mon->bounds.y);
+            }
+        }
+
+        debug_screencast("%s:%i -----------------------\n", __FUNCTION__, __LINE__);
+        printScreen(mon);
+        debug_screencast("%s:%i #---------------------#\n", __FUNCTION__, __LINE__);
+        iter++;
+    }
+
+    debug_screencast("%s:%i screenCount %i\n", __FUNCTION__, __LINE__, monSpace.screenCount);
+}
+
+void signalCallback(GDBusConnection *connection,
+              const gchar *sender_name,
+              const gchar *object_path,
+              const gchar *interface_name,
+              const gchar *signal_name,
+              GVariant *parameters,
+              gpointer user_data) {
+
+    debug_screencast("%s:%i @@@@@@@@@@ \n%s \n%s \n%s \n%s\n%s\n", __FUNCTION__, __LINE__,
+                     sender_name,
+                     object_path,
+                     interface_name,
+                     signal_name,
+                     fp_g_variant_get_type_string(parameters)
+    );
+
+    guint32 u;
+    GVariantIter *iter;
+    fp_g_variant_get(parameters, "(ua{sv})", &u, &iter);
+    debug_screencast("%s:%i %i %p\n", __FUNCTION__, __LINE__, u, iter);
+
+    gchar *tst = NULL;
+    GVariant *var = NULL;
+    while (fp_g_variant_iter_loop(iter, "{sv}", &tst, &var)) {
+        debug_screencast("%s:%i => %s %p of %s\n", __FUNCTION__, __LINE__, tst, var, fp_g_variant_get_type_string(var));
+
+        if (!fp_g_strcmp0(tst, "restore_token")) {
+            gsize len;
+            const gchar * tkn = fp_g_variant_get_string(var, &len);
+            debug_screencast("%s:%i restore_token %s strcmp %i\n", __FUNCTION__, __LINE__, tkn, strcmp(tkn, restoreToken->str));
+            if (strcmp(tkn, restoreToken->str)) {
+                saveRestoreToken(tkn);
+            }
+        } else if (!fp_g_strcmp0(tst, "streams")) {
+            GVariantIter *iterStreams;
+            fp_g_variant_get(var, "a(ua{sv})", &iterStreams);
+
+            rebuildMonData(iterStreams);
+            fp_g_variant_iter_free(iterStreams);
+        }
+    }
+    fp_g_variant_iter_free(iter); //TODO cleanup
+
+    received = TRUE;
+}
+
+void waitForResponse(GDBusProxy *proxy, gchar *obj_path) {
+    GDBusConnection *connection = fp_g_dbus_proxy_get_connection(proxy);
+    guint signalId = fp_g_dbus_connection_signal_subscribe(connection,
+                                                        "org.freedesktop.portal.Desktop",
+                                                        "org.freedesktop.portal.Request",
+                                                        "Response",
+                                                        obj_path,
+                                                        NULL,
+                                                        G_DBUS_SIGNAL_FLAGS_NO_MATCH_RULE,
+                                                        &signalCallback,
+                                                        NULL,
+                                                        NULL
+    );
+
+    while (!received) {
+        fp_g_main_context_iteration(NULL, FALSE);
+    }
+    fp_g_dbus_connection_signal_unsubscribe(connection, signalId);
+}
+
+#define REQUEST_PATH_LEN 32
+
+int getPipewireFd() {
+    tmp = fp_g_string_new_len("", 32);
+    tokenStr = fp_g_string_new("tkn_");
+    sessionTokenStr = fp_g_string_new("sTkn_");
+
+
+    GError *error = NULL;
+    GDBusProxy *proxy = fp_g_dbus_proxy_new_for_bus_sync(
+            G_BUS_TYPE_SESSION,
+            G_DBUS_PROXY_FLAGS_DO_NOT_CONNECT_SIGNALS | G_DBUS_PROXY_FLAGS_DO_NOT_LOAD_PROPERTIES,
+//            G_DBUS_PROXY_FLAGS_DO_NOT_AUTO_START,
+            NULL,
+            "org.freedesktop.portal.Desktop",
+            "/org/freedesktop/portal/desktop",
+            "org.freedesktop.portal.ScreenCast",
+            NULL,
+            &error
+    );
+
+    errHandle(error, __LINE__);
+
+    tokenUpd();
+
+    sessionTokenUpd();
+
+    gchar *token = tokenStr->str;
+    gchar *sessionToken = sessionTokenStr->str;
+
+
+    debug_screencast("%s:%i token:\n\t%s\nsessionToken:\n\t%s\n\n", __FUNCTION__, __LINE__,
+                     token, sessionToken);
+
+    GVariantBuilder options;
+    fp_g_variant_builder_init(&options, G_VARIANT_TYPE_VARDICT);
+
+    fp_g_variant_builder_add(&options, "{sv}", "handle_token", fp_g_variant_new_string(token));
+    fp_g_variant_builder_add(&options, "{sv}", "session_handle_token", fp_g_variant_new_string(sessionToken));
+
+    debug_screencast("%s:%i +++++\n", __FUNCTION__, __LINE__);
+
+    GVariant *retSession = fp_g_dbus_proxy_call_sync(proxy,
+                                                     "CreateSession",
+                                                     fp_g_variant_new("(a{sv})", &options),
+                                                     G_DBUS_CALL_FLAGS_NONE,
+                                                     2000,
+                                                     NULL,
+                                                     &error
+    );
+    debug_screencast("%s:%i @@@\n", __FUNCTION__, __LINE__);
+
+    errHandle(error, __LINE__);
+
+    GString *requestPath = fp_g_string_new_len("", REQUEST_PATH_LEN);
+    fp_g_variant_get(retSession, "(o)", &requestPath->str);
+
+    debug_screencast("%s:%i requestPath %s\n", __FUNCTION__, __LINE__, requestPath->str);
+
+    GString *sessionPath = fp_g_string_new(requestPath->str);
+
+    fp_g_string_replace(sessionPath, "request", "session", 0);
+    fp_g_string_replace(sessionPath, token, sessionToken, 0);
+
+    debug_screencast("%s:%i sessionPath %s\n", __FUNCTION__, __LINE__, sessionPath->str);
+
+
+    GVariant *retVersion = fp_g_dbus_proxy_call_sync(proxy, "org.freedesktop.DBus.Properties.Get",
+                                                     fp_g_variant_new("(ss)",
+                                                                "org.freedesktop.portal.ScreenCast",
+                                                                "version"),
+                                                  G_DBUS_CALL_FLAGS_NONE,
+                                                  -1, NULL, NULL);
+
+    errHandle(error, __LINE__);
+
+    if (retVersion) {
+        GVariant *varVersion = NULL;
+        fp_g_variant_get(retVersion, "(v)", &varVersion);
+
+        guint32 version = fp_g_variant_get_uint32(varVersion);
+        debug_screencast("%s:%i version %d\n", __FUNCTION__, __LINE__, version);
+        if (version < 4) {
+            fprintf(stderr, "%s:%i version %i < 4, session restore is not available\n", __FUNCTION__, __LINE__, version);
+            //TODO check for backend availability
+        }
+    }
+
+    tokenUpd();
+
+
+    fp_g_variant_builder_init(&options, G_VARIANT_TYPE_VARDICT);
+    fp_g_variant_builder_add(&options, "{sv}", "handle_token", fp_g_variant_new_string(token));
+    fp_g_variant_builder_add(&options, "{sv}", "multiple", fp_g_variant_new_boolean(TRUE));
+
+    // 1: MONITOR
+    // 2: WINDOW
+    // 4: VIRTUAL
+    fp_g_variant_builder_add(&options, "{sv}", "types", fp_g_variant_new_uint32(1));
+
+    // 0: Do not persist (default)
+    // 1: Permissions persist as long as the application is running
+    // 2: Permissions persist until explicitly revoked
+    fp_g_variant_builder_add(&options, "{sv}", "persist_mode", fp_g_variant_new_uint32(2));
+
+    loadRestoreToken();
+
+    debug_screencast("%s:%i @@@@@ saved restoreToken %s len %i\n",
+                     __FUNCTION__, __LINE__,
+                     restoreToken->str,
+                     restoreToken->len
+            );
+
+    if (restoreToken->len > 0) {
+        fp_g_variant_builder_add(&options, "{sv}", "restore_token", fp_g_variant_new_string(restoreToken->str));
+    }
+
+    debug_screencast("%s:%i session path %s\n", __FUNCTION__, __LINE__, sessionPath->str);
+    GVariant *retSources = fp_g_dbus_proxy_call_sync(proxy,
+                                                  "SelectSources",
+                                                     fp_g_variant_new("(oa{sv})", sessionPath->str, &options),
+                                                  G_DBUS_CALL_FLAGS_NONE,
+                                                  -1,
+                                                  NULL,
+                                                  &error
+    );
+
+    errHandle(error, __LINE__);
+
+    //TODO GDBus.Error:org.freedesktop.DBus.Error.Failed: Sources not selected sometimes without delay
+    usleep(500000);
+
+
+    if (retSources) {
+        fp_g_variant_get(retSources, "(o)", &requestPath->str);
+        debug_screencast("%s:%i retSources %s\n", __FUNCTION__, __LINE__, requestPath->str);
+    }
+
+    tokenUpd();
+
+    fp_g_variant_builder_init(&options, G_VARIANT_TYPE_VARDICT);
+    fp_g_variant_builder_add(&options, "{sv}", "handle_token", fp_g_variant_new_string(token));
+
+    GVariant *retStart = fp_g_dbus_proxy_call_sync(proxy, "Start",
+                                                   fp_g_variant_new("(osa{sv})", sessionPath->str, "", &options),
+                                                G_DBUS_CALL_FLAGS_NONE,
+                                                -1,
+                                                NULL,
+                                                &error);
+
+    errHandle(error, __LINE__);
+
+    if (retStart) {
+        fp_g_variant_get(retStart, "(o)", &requestPath->str);
+        debug_screencast("%s:%i retStart %s\n", __FUNCTION__, __LINE__, requestPath->str);
+    }
+
+
+    waitForResponse(proxy, requestPath->str);
+
+    GUnixFDList *fdList = NULL;
+    int fd = -1;
+
+    fp_g_variant_builder_init(&options, G_VARIANT_TYPE_VARDICT);
+    GVariant *retPipe = fp_g_dbus_proxy_call_with_unix_fd_list_sync(proxy,
+                                                                 "OpenPipeWireRemote",
+                                                                    fp_g_variant_new("(oa{sv})", sessionPath->str, &options),
+                                                                 G_DBUS_CALL_FLAGS_NONE,
+                                                                 -1,
+                                                                 NULL, &fdList, NULL, &error
+    );
+
+    errHandle(error, __LINE__);
+
+
+    int fdIndex;
+    fp_g_variant_get(retPipe, "(h)", &fdIndex);
+
+    int pipewire_fd = fp_g_unix_fd_list_get(fdList, fdIndex, &error);
+    errHandle(error, __LINE__);
+    debug_screencast("%s:%i g_unix_fd_list_get %i %p\n", __FUNCTION__, __LINE__, pipewire_fd, error);
+
+    return pipewire_fd;
+}
+
+void load_pipewire() { //TODO check if available
+//    void * pipewire_handle = dlopen("libpipewire-0.3.so.0", RTLD_LAZY | RTLD_LOCAL);
+//
+//    debug_screencast("%s:%i pipewire_handle %p\n", __FUNCTION__, __LINE__,pipewire_handle);
+}
+
+
+/********  ********/
 
 static jmp_buf j;
 
@@ -567,6 +1013,41 @@ GtkApi* gtk3_load(JNIEnv *env, const char* lib_name)
         fp_g_list_append = dl_symbol("g_list_append");
         fp_g_list_free = dl_symbol("g_list_free");
         fp_g_list_free_full = dl_symbol("g_list_free_full");
+
+        fp_g_dbus_proxy_call_sync = dl_symbol("g_dbus_proxy_call_sync");
+        fp_g_variant_new = dl_symbol("g_variant_new");
+        fp_g_dbus_proxy_new_for_bus_sync = dl_symbol("g_dbus_proxy_new_for_bus_sync");
+        fp_g_variant_get = dl_symbol("g_variant_get");
+        fp_g_variant_unref = dl_symbol("g_variant_unref");
+        fp_g_clear_error = dl_symbol("g_clear_error");
+
+        fp_g_string_set_size = dl_symbol("g_string_set_size");
+        fp_g_string_append = dl_symbol("g_string_append");
+        fp_g_strcmp0 = dl_symbol("g_strcmp0");
+        fp_g_variant_get_type_string = dl_symbol("g_variant_get_type_string");
+        fp_g_variant_get_string = dl_symbol("g_variant_get_string");
+        fp_g_variant_get_uint32 = dl_symbol("g_variant_get_uint32");
+        fp_g_variant_iter_loop = dl_symbol("g_variant_iter_loop");
+        fp_g_variant_iter_free = dl_symbol("g_variant_iter_free");
+
+        fp_g_dbus_proxy_get_connection = dl_symbol("g_dbus_proxy_get_connection");
+        fp_g_dbus_connection_signal_subscribe = dl_symbol("g_dbus_connection_signal_subscribe");
+        fp_g_dbus_connection_signal_unsubscribe = dl_symbol("g_dbus_connection_signal_unsubscribe");
+
+        fp_g_variant_builder_init = dl_symbol("g_variant_builder_init");
+        fp_g_variant_builder_add = dl_symbol("g_variant_builder_add");
+        fp_g_variant_new_string = dl_symbol("g_variant_new_string");
+
+        fp_g_string_new = dl_symbol("g_string_new");
+        fp_g_string_new_len = dl_symbol("g_string_new_len");
+        fp_g_string_free = dl_symbol("g_string_free");
+        fp_g_string_assign = dl_symbol("g_string_assign");
+        fp_g_string_replace = dl_symbol("g_string_replace");
+        fp_g_variant_new_uint32 = dl_symbol("g_variant_new_uint32");
+        fp_g_variant_new_boolean = dl_symbol("g_variant_new_boolean");
+        fp_g_dbus_proxy_call_with_unix_fd_list_sync = dl_symbol("g_dbus_proxy_call_with_unix_fd_list_sync");
+        fp_g_unix_fd_list_get = dl_symbol("g_unix_fd_list_get");
+        fp_g_variant_type_checked_ = dl_symbol("g_variant_type_checked_");
     }
     /* Now we have only one kind of exceptions: NO_SYMBOL_EXCEPTION
      * Otherwise we can check the return value of setjmp method.

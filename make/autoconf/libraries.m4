@@ -25,6 +25,7 @@
 
 # Major library component reside in separate files.
 m4_include([lib-alsa.m4])
+m4_include([lib-pipewire.m4])
 m4_include([lib-bundled.m4])
 m4_include([lib-cups.m4])
 m4_include([lib-ffi.m4])
@@ -74,11 +75,13 @@ AC_DEFUN_ONCE([LIB_DETERMINE_DEPENDENCIES],
     NEEDS_LIB_FREETYPE=true
   fi
 
-  # Check if alsa is needed
+  # Check if alsa and pipewire is needed
   if test "x$OPENJDK_TARGET_OS" = xlinux; then
     NEEDS_LIB_ALSA=true
+    NEEDS_LIB_PIPEWIRE=true
   else
     NEEDS_LIB_ALSA=false
+    NEEDS_LIB_PIPEWIRE=false
   fi
 
   # Check if ffi is needed
@@ -97,6 +100,7 @@ AC_DEFUN_ONCE([LIB_SETUP_LIBRARIES],
   LIB_SETUP_STD_LIBS
 
   LIB_SETUP_ALSA
+  LIB_SETUP_PIPEWIRE
   LIB_SETUP_BUNDLED_LIBS
   LIB_SETUP_CUPS
   LIB_SETUP_FONTCONFIG

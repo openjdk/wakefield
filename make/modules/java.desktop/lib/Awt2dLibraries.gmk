@@ -192,6 +192,8 @@ ifeq ($(call isTargetOs, windows macosx), false)
 
     LIBAWT_XAWT_EXCLUDES := medialib debug
 
+	PIPEWIRE_INCLUDE := $(shell $(ECHO) $(PIPEWIRE_CFLAGS) | $(GREP) -oE '\-I\S*' | $(SED) 's/-I//g')
+
     LIBAWT_XAWT_EXTRA_HEADER_DIRS := \
         $(LIBAWT_DEFAULT_HEADER_DIRS) \
         libawt_xawt/awt \
@@ -201,6 +203,7 @@ ifeq ($(call isTargetOs, windows macosx), false)
         common/font \
         common/java2d/opengl \
         common/java2d/x11 \
+        $(PIPEWIRE_INCLUDE) \
         #
 
     LIBAWT_XAWT_CFLAGS += -DXAWT -DXAWT_HACK \
@@ -213,7 +216,7 @@ ifeq ($(call isTargetOs, windows macosx), false)
       endif
     endif
 
-    LIBAWT_XAWT_LIBS := $(LIBM) -lawt -lXext -lX11 -lXrender $(LIBDL) -lXtst -lXi -ljava -ljvm
+    LIBAWT_XAWT_LIBS := $(LIBM) -lawt -lXext -lX11 -lXrender $(LIBDL) -lXtst -lXi -ljava -ljvm $(PIPEWIRE_LIBS)
 
     ifeq ($(call isTargetOs, linux), true)
       LIBAWT_XAWT_LIBS += -lpthread

@@ -141,6 +141,7 @@ import sun.awt.X11GraphicsDevice;
 import sun.awt.X11GraphicsEnvironment;
 import sun.awt.XSettings;
 import sun.awt.datatransfer.DataTransferer;
+import sun.awt.screencast.ScreencastHelper;
 import sun.awt.util.PerformanceLogger;
 import sun.awt.util.ThreadGroupUtils;
 import sun.font.FontConfigManager;
@@ -377,6 +378,8 @@ public final class XToolkit extends UNIXToolkit implements Runnable {
                 if (log.isLoggable(PlatformLogger.Level.FINE)) {
                     dumpPeers();
                 }
+
+                ScreencastHelper.shutDown();
             };
             String name = "XToolkt-Shutdown-Thread";
             Thread shutdownThread = new Thread(

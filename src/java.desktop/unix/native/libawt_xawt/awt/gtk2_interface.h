@@ -91,13 +91,6 @@ typedef struct {
   gint y;
   gint width;
   gint height;
-} GdkRectangle;
-
-typedef struct {
-  gint x;
-  gint y;
-  gint width;
-  gint height;
 } GtkAllocation;
 
 typedef struct {

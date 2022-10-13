@@ -35,17 +35,25 @@ import sun.awt.SunToolkit;
 import sun.awt.UNIXToolkit;
 import sun.awt.X11GraphicsConfig;
 import sun.awt.X11GraphicsDevice;
+import sun.awt.screencast.ScreencastHelper;
 import sun.security.action.GetPropertyAction;
 
 @SuppressWarnings("removal")
 final class XRobotPeer implements RobotPeer {
 
     private static final boolean tryGtk;
+    private static final boolean useScreencast;
+
+
     static {
         loadNativeLibraries();
         tryGtk = Boolean.parseBoolean(
                             AccessController.doPrivileged(
                                     new GetPropertyAction("awt.robot.gtk", "true")
+                            ));
+        useScreencast = Boolean.parseBoolean(
+                            AccessController.doPrivileged(
+                                    new GetPropertyAction("useScreencast", "true")
                             ));
     }
     private static volatile boolean useGtk;
@@ -65,6 +73,10 @@ final class XRobotPeer implements RobotPeer {
         }
 
         useGtk = (tryGtk && isGtkSupported);
+
+        if (useGtk && useScreencast) {
+            ScreencastHelper.initAndStart();
+        }
     }
 
     @Override
@@ -106,9 +118,20 @@ final class XRobotPeer implements RobotPeer {
 
     @Override
     public int [] getRGBPixels(Rectangle bounds) {
+        if (useScreencast) {
+            ScreencastHelper.waitForInit();
+        }
+
         int[] pixelArray = new int[bounds.width*bounds.height];
-        getRGBPixelsImpl(xgc, bounds.x, bounds.y, bounds.width, bounds.height,
-                            pixelArray, useGtk);
+        if (useScreencast) {
+            ScreencastHelper.getRGBPixelsImpl(
+                    bounds.x, bounds.y, bounds.width, bounds.height, pixelArray
+            );
+        } else {
+            getRGBPixelsImpl(
+                    xgc, bounds.x, bounds.y, bounds.width, bounds.height, pixelArray, useGtk
+            );
+        }
         return pixelArray;
     }
 
