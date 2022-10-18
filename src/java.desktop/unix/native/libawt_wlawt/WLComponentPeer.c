@@ -27,6 +27,8 @@
 #include <string.h>
 #include <jni.h>
 #include <Trace.h>
+#include <assert.h>
+#include <WLBuffers.h>
 
 #include "jni_util.h"
 #include "WLToolkit.h"
@@ -36,7 +38,9 @@
 #include "wakefield-client-protocol.h"
 #endif
 
-jfieldID nativePtrID;
+static jfieldID nativePtrID;
+static jmethodID postWindowClosingMID;
+static jmethodID postWindowActivatedMID;
 
 struct WLFrame {
     jobject nativeFramePeer; // weak reference
@@ -51,54 +55,115 @@ struct WLFrame {
     };
 };
 
-static void xdg_surface_configure(void *data,
-                                  struct xdg_surface *xdg_surface, uint32_t serial) {
+static void
+xdg_surface_configure(void *data,
+                      struct xdg_surface *xdg_surface,
+                      uint32_t serial)
+{
     xdg_surface_ack_configure(xdg_surface, serial);
+}
+
+static void
+wl_surface_entered_output(void *data,
+                          struct wl_surface *wl_surface,
+                          struct wl_output *output)
+{
+    J2dTrace2(J2D_TRACE_INFO, "wl_surface %p entered output %p\n", wl_surface, output);
+}
+
+static void
+wl_surface_left_output(void *data,
+                       struct wl_surface *wl_surface,
+                       struct wl_output *output)
+{
+    J2dTrace2(J2D_TRACE_INFO, "wl_surface %p left output %p\n", wl_surface, output);
 }
 
 static const struct xdg_surface_listener xdg_surface_listener = {
         .configure = xdg_surface_configure,
 };
 
-static void xdg_toplevel_configure(void *data,
-       			  struct xdg_toplevel *xdg_toplevel,
-       			  int32_t width,
-       			  int32_t height,
-       			  struct wl_array *states) {
-    J2dTrace3(J2D_TRACE_INFO, "WLComponentPeer: xdg_toplevel_configure(%p, %d, %d)\n", xdg_toplevel, width, height);
+static const struct wl_surface_listener wl_surface_listener = {
+        .enter = wl_surface_entered_output,
+        .leave = wl_surface_left_output
+};
+
+static void
+PostWindowActivated(struct WLFrame* frame)
+{
+    JNIEnv *env = getEnv();
+    const jobject nativeFramePeer = (*env)->NewLocalRef(env, frame->nativeFramePeer);
+    if (nativeFramePeer) {
+        (*env)->CallVoidMethod(env, nativeFramePeer, postWindowActivatedMID);
+        (*env)->DeleteLocalRef(env, nativeFramePeer);
+        JNU_CHECK_EXCEPTION(env);
+    }
 }
 
-static void xdg_popup_configure(void *data,
-                  struct xdg_popup *xdg_popup,
-                  int32_t x,
-                  int32_t y,
-                  int32_t width,
-                  int32_t height) {
+static void
+xdg_toplevel_configure(void *data,
+                       struct xdg_toplevel *xdg_toplevel,
+                       int32_t width,
+                       int32_t height,
+                       struct wl_array *states)
+{
+    J2dTrace3(J2D_TRACE_INFO, "WLComponentPeer: xdg_toplevel_configure(%p, %d, %d)\n", xdg_toplevel, width, height);
+
+    struct WLFrame *wlFrame = (struct WLFrame*)data;
+    assert(wlFrame);
+
+    if (width != 0 || height !=0) {
+        // TODO: notify of size change
+
+    }
+
+    uint32_t *p;
+    wl_array_for_each(p, states) {
+        uint32_t state = *p;
+        switch (state) {
+            case XDG_TOPLEVEL_STATE_ACTIVATED:
+                PostWindowActivated(wlFrame);
+                break;
+            case XDG_TOPLEVEL_STATE_FULLSCREEN:
+                break;
+            case XDG_TOPLEVEL_STATE_MAXIMIZED:
+                break;
+            default:
+                break;
+        }
+    }
+}
+
+static void
+xdg_popup_configure(void *data,
+                                struct xdg_popup *xdg_popup,
+                                int32_t x,
+                                int32_t y,
+                                int32_t width,
+                                int32_t height)
+{
     J2dTrace5(J2D_TRACE_INFO, "WLComponentPeer: xdg_popup_configure(%p, %d, %d, %d, %d)\n",
               xdg_popup, x, y, width, height);
 }
 
-static void xdg_toplevel_close(void *data,
-		      struct xdg_toplevel *xdg_toplevel) {
+static void
+xdg_toplevel_close(void *data,
+		           struct xdg_toplevel *xdg_toplevel)
+{
     struct WLFrame *frame = (struct WLFrame *) data;
     JNIEnv *env = getEnv();
-    jobject nativeFramePeer = (*env)->NewLocalRef(env, frame->nativeFramePeer);
+    const jobject nativeFramePeer = (*env)->NewLocalRef(env, frame->nativeFramePeer);
     if (nativeFramePeer) {
-        static jclass wlFramePeerCID = NULL;
-        if (!wlFramePeerCID) {
-            wlFramePeerCID = (*env)->FindClass(env, "sun/awt/wl/WLFramePeer");
-        }
-        static jmethodID postWindowClosingMID = NULL;
-        if (!postWindowClosingMID) {
-            postWindowClosingMID = (*env)->GetMethodID(env, wlFramePeerCID, "postWindowClosing", "()V");
-        }
         (*env)->CallVoidMethod(env, nativeFramePeer, postWindowClosingMID);
         (*env)->DeleteLocalRef(env, nativeFramePeer);
+        JNU_CHECK_EXCEPTION(env);
     }
 }
 
-static void xdg_popup_done(void *data,
-                   struct xdg_popup *xdg_popup) {
+static void
+xdg_popup_done(void *data,
+               struct xdg_popup *xdg_popup)
+{
     J2dTrace1(J2D_TRACE_INFO, "WLComponentPeer: xdg_popup_done(%p)\n", xdg_popup);
 }
 
@@ -119,6 +184,18 @@ Java_sun_awt_wl_WLComponentPeer_initIDs
     CHECK_NULL(nativePtrID = (*env)->GetFieldID(env, clazz, "nativePtr", "J"));
 }
 
+JNIEXPORT void JNICALL
+Java_sun_awt_wl_WLFramePeer_initIDs
+        (JNIEnv *env, jclass clazz)
+{
+    CHECK_NULL_THROW_IE(env,
+                        postWindowActivatedMID = (*env)->GetMethodID(env, clazz, "postWindowActivated", "()V"),
+                        "Failed to find method WLFramePeer.postWindowActivated");
+    CHECK_NULL_THROW_IE(env,
+                        postWindowClosingMID = (*env)->GetMethodID(env, clazz, "postWindowClosing", "()V"),
+                        "Failed to find method WLFramePeer.postWindowClosing");
+}
+
 JNIEXPORT jlong JNICALL
 Java_sun_awt_wl_WLComponentPeer_nativeCreateFrame
   (JNIEnv *env, jobject obj)
@@ -132,9 +209,65 @@ Java_sun_awt_wl_WLComponentPeer_nativeCreateFrame
     return (jlong)frame;
 }
 
+static void
+FrameSetTitle
+        (JNIEnv* env, struct WLFrame *frame, jstring title)
+{
+    if (!frame->xdg_toplevel) return;
+
+    jboolean iscopy = JNI_FALSE;
+    const char *title_c_str = JNU_GetStringPlatformChars(env, title, &iscopy);
+    if (title_c_str) {
+        xdg_toplevel_set_title(frame->xdg_toplevel, title_c_str);
+        if (iscopy) {
+            JNU_ReleaseStringPlatformChars(env, title, title_c_str);
+        }
+    }
+}
+
+static void
+FrameSetAppID
+        (JNIEnv* env, struct WLFrame *frame, jstring appid)
+{
+    if (!frame->xdg_toplevel) return;
+
+    jboolean iscopy = JNI_FALSE;
+    const char *id_c_str = JNU_GetStringPlatformChars(env, appid, &iscopy);
+    if (id_c_str) {
+        xdg_toplevel_set_app_id(frame->xdg_toplevel, id_c_str);
+        if (iscopy) {
+            JNU_ReleaseStringPlatformChars(env, appid, id_c_str);
+        }
+    }
+}
+
 JNIEXPORT void JNICALL
-Java_sun_awt_wl_WLComponentPeer_nativeShowComponent
-  (JNIEnv *env, jobject obj, jlong ptr, jlong parentPtr, jint x, jint y)
+Java_sun_awt_wl_WLComponentPeer_nativeSetTitle
+        (JNIEnv *env, jobject obj, jlong ptr, jstring title)
+{
+    struct WLFrame *frame = jlong_to_ptr(ptr);
+    FrameSetTitle(env, frame, title);
+}
+
+JNIEXPORT void JNICALL
+Java_sun_awt_wl_WLComponentPeer_nativeRequestMinimized
+        (JNIEnv *env, jobject obj, jlong ptr)
+{
+    struct WLFrame *frame = jlong_to_ptr(ptr);
+    xdg_toplevel_set_minimized(frame->xdg_toplevel);
+}
+
+JNIEXPORT void JNICALL
+Java_sun_awt_wl_WLComponentPeer_nativeRequestMaximized
+        (JNIEnv *env, jobject obj, jlong ptr)
+{
+    struct WLFrame *frame = jlong_to_ptr(ptr);
+    xdg_toplevel_set_maximized(frame->xdg_toplevel);
+}
+
+JNIEXPORT void JNICALL
+Java_sun_awt_wl_WLComponentPeer_nativeCreateWLSurface
+  (JNIEnv *env, jobject obj, jlong ptr, jlong parentPtr, jint x, jint y, jstring title, jstring appid)
 {
     struct WLFrame *frame = (struct WLFrame *) ptr;
     struct WLFrame *parentFrame = (struct WLFrame*) parentPtr;
@@ -142,11 +275,18 @@ Java_sun_awt_wl_WLComponentPeer_nativeShowComponent
     frame->wl_surface = wl_compositor_create_surface(wl_compositor);
     frame->xdg_surface = xdg_wm_base_get_xdg_surface(xdg_wm_base, frame->wl_surface);
 
-    xdg_surface_add_listener(frame->xdg_surface, &xdg_surface_listener, NULL);
+    wl_surface_add_listener(frame->wl_surface, &wl_surface_listener, frame);
+    xdg_surface_add_listener(frame->xdg_surface, &xdg_surface_listener, frame);
     frame->toplevel = parentFrame == NULL;
     if (frame->toplevel) {
         frame->xdg_toplevel = xdg_surface_get_toplevel(frame->xdg_surface);
         xdg_toplevel_add_listener(frame->xdg_toplevel, &xdg_toplevel_listener, frame);
+        if (title) {
+            FrameSetTitle(env, frame, title);
+        }
+        if (appid) {
+            FrameSetAppID(env, frame, appid);
+        }
     } else {
         struct xdg_positioner *xdg_positioner =
                 xdg_wm_base_create_positioner(xdg_wm_base);
@@ -154,9 +294,6 @@ Java_sun_awt_wl_WLComponentPeer_nativeShowComponent
         frame->xdg_popup = xdg_surface_get_popup(frame->xdg_surface, parentFrame->xdg_surface, xdg_positioner);
         xdg_popup_add_listener(frame->xdg_popup, &xdg_popup_listener, frame);
     }
-
-    wl_surface_commit(frame->wl_surface);
-    wl_display_roundtrip(wl_display); // this should process 'configure' event, and send 'ack_configure' in response
 #ifdef WAKEFIELD_ROBOT
         if (wakefield) {
             // TODO: this doesn't work quite as expected for some reason
@@ -165,7 +302,9 @@ Java_sun_awt_wl_WLComponentPeer_nativeShowComponent
 #endif
 }
 
-static void doHide(struct WLFrame *frame) {
+static void
+DoHide(struct WLFrame *frame)
+{
     if (frame->wl_surface) {
         if(frame->toplevel) {
             xdg_toplevel_destroy(frame->xdg_toplevel);
@@ -187,7 +326,7 @@ Java_sun_awt_wl_WLComponentPeer_nativeHideFrame
   (JNIEnv *env, jobject obj, jlong ptr)
 {
     struct WLFrame *frame = (struct WLFrame *) ptr;
-    doHide(frame);
+    DoHide(frame);
 }
 
 JNIEXPORT void JNICALL
@@ -195,7 +334,7 @@ Java_sun_awt_wl_WLComponentPeer_nativeDisposeFrame
   (JNIEnv *env, jobject obj, jlong ptr)
 {
     struct WLFrame *frame = (struct WLFrame *) ptr;
-    doHide(frame);
+    DoHide(frame);
     (*env)->DeleteWeakGlobalRef(env, frame->nativeFramePeer);
     free(frame);
 }

@@ -38,21 +38,8 @@ import sun.java2d.wl.WLSurfaceData;
 import sun.util.logging.PlatformLogger;
 import sun.util.logging.PlatformLogger.Level;
 
-import java.awt.AWTEvent;
-import java.awt.AWTException;
-import java.awt.BufferCapabilities;
-import java.awt.Color;
-import java.awt.Component;
-import java.awt.Dimension;
-import java.awt.Font;
-import java.awt.FontMetrics;
-import java.awt.Graphics;
-import java.awt.GraphicsConfiguration;
-import java.awt.Image;
-import java.awt.Point;
-import java.awt.Rectangle;
-import java.awt.SystemColor;
-import java.awt.Toolkit;
+import java.awt.*;
+import java.awt.event.ComponentEvent;
 import java.awt.event.FocusEvent;
 import java.awt.event.InputEvent;
 import java.awt.event.InputMethodEvent;
@@ -70,12 +57,14 @@ import java.util.Objects;
 public class WLComponentPeer implements ComponentPeer {
     private static final PlatformLogger focusLog = PlatformLogger.getLogger("sun.awt.wl.focus.WLComponentPeer");
 
+    private static final String appID = System.getProperty("sun.java.command");
+
     private long nativePtr;
     private static final PlatformLogger log = PlatformLogger.getLogger("sun.awt.wl.WLComponentPeer");
     protected final Component target;
     protected WLGraphicsConfig graphicsConfig;
     protected Color background;
-    SurfaceData surfaceData;
+    WLSurfaceData surfaceData;
     WLRepaintArea paintArea;
     boolean paintPending = false;
     boolean isLayouting = false;
@@ -83,11 +72,10 @@ public class WLComponentPeer implements ComponentPeer {
 
     int x;
     int y;
-    int width;
-    int height;
-    // used to check if we need to re-create surfaceData.
-    int oldWidth = -1;
-    int oldHeight = -1;
+
+    private final Object sizeLock = new Object();
+    int width;  // protected by sizeLock
+    int height; // protected by sizeLock
 
     static {
         initIDs();
@@ -100,26 +88,30 @@ public class WLComponentPeer implements ComponentPeer {
         this.target = target;
         this.background = target.getBackground();
         initGraphicsConfiguration();
-        this.surfaceData = graphicsConfig.createSurfaceData(this);
-        this.nativePtr = nativeCreateFrame();
-        paintArea = new WLRepaintArea();
         Rectangle bounds = target.getBounds();
         x = bounds.x;
         y = bounds.y;
         width = bounds.width;
         height = bounds.height;
+        this.surfaceData = (WLSurfaceData) graphicsConfig.createSurfaceData(this);
+        this.nativePtr = nativeCreateFrame();
+        paintArea = new WLRepaintArea();
         log.info("WLComponentPeer: target=" + target + " x=" + x + " y=" + y +
                 " width=" + width + " height=" + height);
         // TODO
         // setup parent window for target
     }
 
-    int getWidth() {
+    public int getWidth() {
         return width;
     }
 
-    int getHeight() {
+    public int getHeight() {
         return height;
+    }
+
+    public Color getBackground() {
+        return background;
     }
 
     public final void repaint(int x, int y, int width, int height) {
@@ -226,9 +218,11 @@ public class WLComponentPeer implements ComponentPeer {
     protected void wlSetVisible(boolean v) {
         this.visible = v;
         if (this.visible) {
-            nativeShowComponent(nativePtr, getParentNativePtr(target), target.getX(), target.getY());
-            WLToolkit.registerWLSurface(getWLSurface(), this);
-            ((WLSurfaceData) surfaceData).initSurface(this, background != null ? background.getRGB() : 0, target.getWidth(), target.getHeight());
+            final String title = target instanceof Frame frame ? frame.getTitle() : null;
+            nativeCreateWLSurface(nativePtr, getParentNativePtr(target), target.getX(), target.getY(), title, appID);
+            final long wlSurfacePtr = getWLSurface();
+            WLToolkit.registerWLSurface(wlSurfacePtr, this);
+            surfaceData.assignSurface(wlSurfacePtr);
             PaintEvent event = PaintEventDispatcher.getPaintEventDispatcher().
                     createPaintEvent(target, 0, 0, target.getWidth(), target.getHeight());
             if (event != null) {
@@ -236,6 +230,7 @@ public class WLComponentPeer implements ComponentPeer {
             }
         } else {
             WLToolkit.unregisterWLSurface(getWLSurface());
+            surfaceData.assignSurface(0);
             nativeHideFrame(nativePtr);
         }
     }
@@ -296,31 +291,27 @@ public class WLComponentPeer implements ComponentPeer {
     }
 
     public void setBounds(int x, int y, int width, int height, int op) {
-        if (this.x != x || this.y != y) {
+        final boolean positionChanged = this.x != x || this.y != y;
+        if (positionChanged) {
             WLRobotPeer.setLocationOfWLSurface(getWLSurface(), x, y);
         }
         this.x = x;
         this.y = y;
-        this.width = width;
-        this.height = height;
-        validateSurface();
-        layout();
-    }
 
-    void validateSurface() {
-        if ((width != oldWidth) || (height != oldHeight)) {
-            doValidateSurface();
-
-            oldWidth = width;
-            oldHeight = height;
+        if (positionChanged) {
+            WLToolkit.postEvent(new ComponentEvent(getTarget(), ComponentEvent.COMPONENT_MOVED));
         }
-    }
 
-    final void doValidateSurface() {
-        SurfaceData oldData = surfaceData;
-        if (oldData != null) {
-            surfaceData = graphicsConfig.createSurfaceData(this);
-            oldData.invalidate();
+        synchronized(sizeLock) {
+            final boolean sizeChanged = this.width != width || this.height != height;
+            if (sizeChanged) {
+                this.width = width;
+                this.height = height;
+                surfaceData.revalidate(width, height);
+                layout();
+
+                WLToolkit.postEvent(new ComponentEvent(getTarget(), ComponentEvent.COMPONENT_RESIZED));
+            }
         }
     }
 
@@ -490,6 +481,7 @@ public class WLComponentPeer implements ComponentPeer {
             return;
         }
         background = c;
+        // TODO: propagate this change to WLSurfaceData
     }
 
     @Override
@@ -586,17 +578,47 @@ public class WLComponentPeer implements ComponentPeer {
         throw new UnsupportedOperationException();
     }
 
+    protected final void setFrameTitle(String title) {
+        Objects.requireNonNull(title);
+        if (nativePtr != 0) {
+            nativeSetTitle(nativePtr, title);
+        }
+    }
+
+    protected final void requestMinimized() {
+        if (nativePtr != 0) {
+            nativeRequestMinimized(nativePtr);
+        }
+    }
+
+    protected final void requestMaximized() {
+        if (nativePtr != 0) {
+            nativeRequestMaximized(nativePtr);
+        }
+    }
+
+    protected final void requestUnmaximized() {
+        if (nativePtr != 0) {
+            nativeRequestUnmaximized(nativePtr);
+        }
+    }
+
     private static native void initIDs();
 
     protected native long nativeCreateFrame();
 
-    protected native void nativeShowComponent(long ptr, long parentPtr, int x, int y);
+    protected native void nativeCreateWLSurface(long ptr, long parentPtr, int x, int y, String title, String appID);
 
     protected native void nativeHideFrame(long ptr);
 
     protected native void nativeDisposeFrame(long ptr);
 
     private native long getWLSurface();
+
+    private native void nativeSetTitle(long ptr, String title);
+    private native void nativeRequestMinimized(long ptr);
+    private native void nativeRequestMaximized(long ptr);
+    private native void nativeRequestUnmaximized(long ptr);
 
     static long getParentNativePtr(Component target) {
         Component parent = target.getParent();
@@ -606,5 +628,14 @@ public class WLComponentPeer implements ComponentPeer {
         ComponentPeer peer = acc.getPeer(parent);
 
         return ((WLComponentPeer)peer).nativePtr;
+    }
+
+    private final Object state_lock = new Object();
+    /**
+     * This lock object is used to protect instance data from concurrent access
+     * by two threads.
+     */
+    Object getStateLock() {
+        return state_lock;
     }
 }
