@@ -47,7 +47,6 @@ public class WLSurfaceData extends SurfaceData {
     private final WLGraphicsConfig graphicsConfig;
     private final int depth;
 
-
     public native void assignSurface(long surfacePtr);
 
     protected native void initOps(int width, int height, int backgroundRGB);
@@ -60,7 +59,10 @@ public class WLSurfaceData extends SurfaceData {
         this.peer = peer;
         this.graphicsConfig = gc;
         this.depth = cm.getPixelSize();
-        initOps(peer.getWidth(), peer.getHeight(), peer.getBackground().getRGB());
+        final int backgroundRGB = peer.getBackground() != null
+                ? peer.getBackground().getRGB()
+                : 0;
+        initOps(peer.getWidth(), peer.getHeight(), backgroundRGB);
     }
 
     /**
@@ -122,4 +124,6 @@ public class WLSurfaceData extends SurfaceData {
     }
 
     public native void revalidate(int width, int height);
+
+    public native void commitToServer();
 }
