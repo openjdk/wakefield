@@ -91,7 +91,7 @@ public class WLSurfaceData extends SurfaceData {
 
     @Override
     public GraphicsConfiguration getDeviceConfiguration() {
-        return null;
+        return graphicsConfig;
     }
 
     @Override
