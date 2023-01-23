@@ -128,6 +128,7 @@ struct _GSList {
   GSList *next;
 };
 
+typedef signed long gssize;
 typedef struct _GString         GString;
 
 struct _GString
@@ -138,12 +139,61 @@ struct _GString
 };
 
 typedef struct _GVariant                      GVariant;
+typedef struct _GVariantIter GVariantIter;
+struct _GVariantIter {
+    /*< private >*/
+    gsize x[16];
+};
+
+typedef struct _GVariantType GVariantType;
+typedef struct _GVariantBuilder GVariantBuilder;
+
+struct _GVariantBuilder {
+    /*< private >*/
+    union
+    {
+        struct {
+            gsize partial_magic;
+            const GVariantType *type;
+            gsize y[14];
+        } s;
+        gsize x[16];
+    } u;
+};
+
+//static const GVariantType *            (*fp_g_variant_type_checked_)                 (const gchar *);
+//#define G_VARIANT_TYPE(type_string)            (fp_g_variant_type_checked_ ((type_string)))
+#define G_VARIANT_TYPE_VARDICT              ((const GVariantType *) "a{sv}")
+#define G_VARIANT_TYPE_ARRAY                ((const GVariantType *) "a*")
+#define G_VARIANT_TYPE_STRING               ((const GVariantType *) "s")
+
 typedef struct _GDBusProxy                    GDBusProxy;
 typedef enum {
     G_DBUS_CALL_FLAGS_NONE = 0,
     G_DBUS_CALL_FLAGS_NO_AUTO_START = (1<<0),
     G_DBUS_CALL_FLAGS_ALLOW_INTERACTIVE_AUTHORIZATION = (1<<1)
 } GDBusCallFlags;
+
+typedef void GMainContext;
+typedef void GUnixFDList;
+
+typedef void GDBusConnection;
+typedef enum /*< flags >*/
+{
+    G_DBUS_SIGNAL_FLAGS_NONE = 0,
+    G_DBUS_SIGNAL_FLAGS_NO_MATCH_RULE = (1<<0),
+    G_DBUS_SIGNAL_FLAGS_MATCH_ARG0_NAMESPACE = (1<<1),
+    G_DBUS_SIGNAL_FLAGS_MATCH_ARG0_PATH = (1<<2)
+} GDBusSignalFlags;
+
+typedef void (*GDBusSignalCallback) (GDBusConnection  *connection,
+                                     const gchar      *sender_name,
+                                     const gchar      *object_path,
+                                     const gchar      *interface_name,
+                                     const gchar      *signal_name,
+                                     GVariant         *parameters,
+                                     gpointer          user_data);
+
 typedef struct _GCancellable                  GCancellable;
 
 typedef enum
@@ -165,6 +215,14 @@ typedef enum
 } GDBusProxyFlags;
 
 typedef struct _GDBusInterfaceInfo            GDBusInterfaceInfo;
+
+typedef enum
+{
+    G_FILE_SET_CONTENTS_NONE = 0,
+    G_FILE_SET_CONTENTS_CONSISTENT = 1 << 0,
+    G_FILE_SET_CONTENTS_DURABLE = 1 << 1,
+    G_FILE_SET_CONTENTS_ONLY_EXISTING = 1 << 2
+} GFileSetContentsFlags;
 
 typedef enum {
     BUTTON,                     /* GtkButton */
@@ -566,7 +624,6 @@ typedef struct GtkApi {
                                        jint jwidth, int dx, int dy);
     void (*g_free)(gpointer mem);
 
-
     gchar* (*gtk_file_chooser_get_filename)(GtkFileChooser *chooser);
     void (*gtk_widget_hide)(void* widget);
     void (*gtk_main_quit)(void);
@@ -611,6 +668,162 @@ typedef struct GtkApi {
     GList* (*g_list_append) (GList *list, gpointer data);
     void (*g_list_free) (GList *list);
     void (*g_list_free_full) (GList *list, GDestroyNotify free_func);
+
+    GVariant *(*g_dbus_proxy_call_sync)(
+            GDBusProxy *proxy,
+            const gchar *method_name,
+            GVariant *parameters,
+            GDBusCallFlags flags,
+            gint timeout_msec,
+            GCancellable *cancellable,
+            GError **error);
+
+    GVariant *(*g_variant_new)(const gchar *format_string, ...);
+    GVariant *(*g_variant_new_string)(const gchar *string);
+    GVariant *(*g_variant_new_boolean)(gboolean value);
+    GVariant *(*g_variant_new_uint32)(guint32 value);
+
+
+    void (*g_variant_get)(GVariant *value,
+                                    const gchar *format_string,
+                                    ...);
+    const gchar *(*g_variant_get_type_string)(GVariant *value);
+    const gchar *(*g_variant_get_string)(GVariant *value, gsize *length);
+    guint32 (*g_variant_get_uint32)(GVariant *value);
+
+    gboolean (*g_variant_lookup)(GVariant *dictionary,
+                                           const gchar *key,
+                                           const gchar *format_string,
+                                           ...);
+    gboolean (*g_variant_iter_loop)(GVariantIter *iter,
+                                              const gchar *format_string,
+                                              ...);
+    void (*g_variant_iter_free)(GVariantIter *iter);
+
+    void (*g_variant_unref)(GVariant             *value);
+
+    void (*g_variant_builder_init)(GVariantBuilder *builder, //+
+                                             const GVariantType *type);
+
+    void (*g_variant_builder_add)(GVariantBuilder *builder, //+
+                                            const gchar *format_string,
+                                            ...);
+
+    GVariant *(*g_variant_lookup_value)(GVariant *dictionary,
+                                                  const gchar *key,
+                                                  const GVariantType *expected_type);
+
+    gsize (*g_variant_iter_init)(GVariantIter *iter,
+                                           GVariant *value);
+
+    gsize (*g_variant_iter_n_children)(GVariantIter *iter);
+
+
+    GString *(*g_string_new)(const gchar *init);
+
+    GString *(*g_string_new_len)(const gchar *init,
+                                 gssize len);
+
+    GString *(*g_string_erase)(GString *string,
+                               gssize pos,
+                               gssize len);
+
+    GString *(*g_string_set_size)(GString *string,
+                                  gsize len);
+
+    GString *(*g_string_append)(GString *string,
+                                const gchar *val);
+
+    gchar *(*g_string_free)(GString *string,
+                            gboolean free_segment);
+
+    GString *(*g_string_assign)(GString *string,
+                                const gchar *rval);
+
+    guint (*g_string_replace)(GString *string,
+                              const gchar *find,
+                              const gchar *replace,
+                              guint limit);
+
+    void *(*g_string_printf)(GString *string,
+                             const gchar *format,
+                             ...);
+
+    GDBusConnection *(*g_bus_get_sync)(GBusType bus_type,
+                                       GCancellable *cancellable,
+                                       GError **error);
+
+    GDBusConnection *(*g_dbus_proxy_get_connection)(GDBusProxy *proxy);
+
+    GDBusProxy *(*g_dbus_proxy_new_sync)(GDBusConnection *connection,
+                                                   GDBusProxyFlags flags,
+                                                   GDBusInterfaceInfo *info,
+                                                   const gchar *name,
+                                                   const gchar *object_path,
+                                                   const gchar *interface_name,
+                                                   GCancellable *cancellable,
+                                                   GError **error);
+
+    const gchar *(*g_dbus_connection_get_unique_name)(GDBusConnection *connection);
+
+
+
+    guint (*g_dbus_connection_signal_subscribe)(GDBusConnection *connection,
+                                                          const gchar *sender,
+                                                          const gchar *interface_name,
+                                                          const gchar *member,
+                                                          const gchar *object_path,
+                                                          const gchar *arg0,
+                                                          GDBusSignalFlags flags,
+                                                          GDBusSignalCallback callback,
+                                                          gpointer user_data,
+                                                          GDestroyNotify user_data_free_func);
+
+    void (*g_dbus_connection_signal_unsubscribe)(GDBusConnection *connection,
+                                                           guint subscription_id);
+
+    GVariant *(*g_dbus_proxy_call_with_unix_fd_list_sync)(GDBusProxy *proxy,
+                                                                    const gchar *method_name,
+                                                                    GVariant *parameters,
+                                                                    GDBusCallFlags flags,
+                                                                    gint timeout_msec,
+                                                                    GUnixFDList *fd_list,
+                                                                    GUnixFDList **out_fd_list,
+                                                                    GCancellable *cancellable,
+                                                                    GError **error);
+
+    GVariant *(*g_dbus_connection_call_sync)(GDBusConnection *connection,
+                                                       const gchar *bus_name,
+                                                       const gchar *object_path,
+                                                       const gchar *interface_name,
+                                                       const gchar *method_name,
+                                                       GVariant *parameters,
+                                                       const GVariantType *reply_type,
+                                                       GDBusCallFlags flags,
+                                                       gint timeout_msec,
+                                                       GCancellable *cancellable,
+                                                       GError **error);
+
+    gboolean (*g_main_context_iteration)(GMainContext *context,
+                                         gboolean may_block);
+
+    void (*g_error_free)(GError *error);
+
+    gint (*g_unix_fd_list_get)(GUnixFDList *list,
+                               gint index_,
+                               GError **error);
+
+    gboolean (*g_file_get_contents)(const gchar *filename,
+                                    gchar **contents,
+                                    gsize *length,
+                                    GError **error);
+
+    gboolean (*g_file_set_contents_full)(const gchar *filename,
+                                         const gchar *contents,
+                                         gssize length,
+                                         GFileSetContentsFlags flags,
+                                         int mode,
+                                         GError **error);
 } GtkApi;
 
 gboolean gtk_load(JNIEnv *env, GtkVersion version, gboolean verbose);

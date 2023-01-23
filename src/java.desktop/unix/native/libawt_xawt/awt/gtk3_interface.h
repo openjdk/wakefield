@@ -34,7 +34,6 @@
 #include <jni.h>
 #include <X11/X.h>
 #include "gtk_interface.h"
-#include "pipewire_related.h"
 
 #define LIGHTNESS_MULT  1.3
 #define DARKNESS_MULT   0.7
@@ -369,7 +368,6 @@ static gboolean (*fp_gtk_show_uri)(GdkScreen *screen, const gchar *uri,
     guint32 timestamp, GError **error);
 
 // Implementation functions prototypes
-static void gtk3_init(GtkApi* gtk);
 static GValue*      (*fp_g_value_init)(GValue *value, GType g_type);
 static gboolean     (*fp_g_type_is_a)(GType type, GType is_a_type);
 static gboolean     (*fp_g_value_get_boolean)(const GValue *value);
@@ -488,8 +486,6 @@ static void (*fp_gtk_render_background)(GtkStyleContext *context, cairo_t *cr,
                      gdouble x, gdouble y, gdouble width, gdouble height);
 static gboolean (*fp_gtk_style_context_has_class)(GtkStyleContext *context,
                      const gchar *class_name);
-static void transform_detail_string (const gchar *detail,
-                     GtkStyleContext *context);
 static void (*fp_gtk_style_context_set_junction_sides)(GtkStyleContext  *context,
                      GtkJunctionSides  sides);
 static void (*fp_gtk_style_context_add_region)(GtkStyleContext *context,
@@ -631,7 +627,9 @@ static void (*fp_gtk_style_context_set_path)
 static void (*fp_gtk_widget_path_unref) (GtkWidgetPath *path);
 static GtkStyleContext* (*fp_gtk_style_context_new) (void);
 
-static GVariant* (*fp_g_dbus_proxy_call_sync)(GDBusProxy *proxy,
+
+// ---------- fp_g_dbus_* ----------
+static GVariant *(*fp_g_dbus_proxy_call_sync)(GDBusProxy *proxy,
                                               const gchar *method_name,
                                               GVariant *parameters,
                                               GDBusCallFlags flags,
@@ -639,56 +637,23 @@ static GVariant* (*fp_g_dbus_proxy_call_sync)(GDBusProxy *proxy,
                                               GCancellable *cancellable,
                                               GError **error);
 
-static GVariant* (*fp_g_variant_new)(const gchar *format_string, ...);
+static GDBusConnection *(*fp_g_dbus_proxy_get_connection)(GDBusProxy *proxy);
 
-static GDBusProxy *(*fp_g_dbus_proxy_new_for_bus_sync)(GBusType bus_type,
-                                                GDBusProxyFlags flags,
-                                                GDBusInterfaceInfo *info,
-                                                const gchar *name,
-                                                const gchar *object_path,
-                                                const gchar *interface_name,
-                                                GCancellable *cancellable,
-                                                GError **error);
+static GDBusProxy *(*fp_g_dbus_proxy_new_sync)(GDBusConnection *connection,
+                                               GDBusProxyFlags flags,
+                                               GDBusInterfaceInfo *info,
+                                               const gchar *name,
+                                               const gchar *object_path,
+                                               const gchar *interface_name,
+                                               GCancellable *cancellable,
+                                               GError **error);
 
-static void (*fp_g_variant_get)(GVariant *value,
-                                const gchar *format_string,
-                                ...);
-static void (*fp_g_variant_unref)(GVariant             *value);
-static void (*fp_g_clear_error)(GError **err);
+static const gchar *(*fp_g_dbus_connection_get_unique_name)(GDBusConnection *connection);
 
-static GString* (*fp_g_string_set_size)(GString *string,
-                                        gsize len);
+static GDBusConnection *(*fp_g_bus_get_sync)(GBusType bus_type,
+                                             GCancellable *cancellable,
+                                             GError **error);
 
-static GString* (*fp_g_string_append)(GString *string,
-                                      const gchar *val);
-static int     (*fp_g_strcmp0)(const char     *str1,
-                             const char     *str2);
-
-static const gchar *(*fp_g_variant_get_type_string)(GVariant *value);
-
-static const gchar *(*fp_g_variant_get_string)(GVariant *value,
-                                               gsize *length);
-
-static guint32 (*fp_g_variant_get_uint32)(GVariant *value);
-
-typedef void GVariantIter;
-typedef void GDBusConnection;
-typedef enum /*< flags >*/
-{
-    G_DBUS_SIGNAL_FLAGS_NONE = 0,
-    G_DBUS_SIGNAL_FLAGS_NO_MATCH_RULE = (1<<0),
-    G_DBUS_SIGNAL_FLAGS_MATCH_ARG0_NAMESPACE = (1<<1),
-    G_DBUS_SIGNAL_FLAGS_MATCH_ARG0_PATH = (1<<2)
-} GDBusSignalFlags;
-
-static GDBusConnection *(*fp_g_dbus_proxy_get_connection)            (GDBusProxy          *proxy);
-typedef void (*GDBusSignalCallback) (GDBusConnection  *connection,
-                                     const gchar      *sender_name,
-                                     const gchar      *object_path,
-                                     const gchar      *interface_name,
-                                     const gchar      *signal_name,
-                                     GVariant         *parameters,
-                                     gpointer          user_data);
 static guint (*fp_g_dbus_connection_signal_subscribe)(GDBusConnection *connection,
                                                       const gchar *sender,
                                                       const gchar *interface_name,
@@ -701,86 +666,139 @@ static guint (*fp_g_dbus_connection_signal_subscribe)(GDBusConnection *connectio
                                                       GDestroyNotify user_data_free_func);
 
 static void (*fp_g_dbus_connection_signal_unsubscribe)(GDBusConnection *connection,
-                                                guint subscription_id);
+                                                       guint subscription_id);
 
+static GVariant *(*fp_g_dbus_proxy_call_with_unix_fd_list_sync)(GDBusProxy *proxy,
+                                                                const gchar *method_name,
+                                                                GVariant *parameters,
+                                                                GDBusCallFlags flags,
+                                                                gint timeout_msec,
+                                                                GUnixFDList *fd_list,
+                                                                GUnixFDList **out_fd_list,
+                                                                GCancellable *cancellable,
+                                                                GError **error);
 
+static GVariant *(*fp_g_dbus_connection_call_sync)(GDBusConnection *connection,
+                                                   const gchar *bus_name,
+                                                   const gchar *object_path,
+                                                   const gchar *interface_name,
+                                                   const gchar *method_name,
+                                                   GVariant *parameters,
+                                                   const GVariantType *reply_type,
+                                                   GDBusCallFlags flags,
+                                                   gint timeout_msec,
+                                                   GCancellable *cancellable,
+                                                   GError **error);
 
-static gboolean (*fp_g_variant_iter_loop)(GVariantIter *iter,
-                             const gchar *format_string,
-                             ...);
-static void (*fp_g_variant_iter_free)(GVariantIter *iter);
+//static GDBusProxy *(*fp_g_dbus_proxy_new_for_bus_sync)(GBusType bus_type,
+//                                                GDBusProxyFlags flags,
+//                                                GDBusInterfaceInfo *info,
+//                                                const gchar *name,
+//                                                const gchar *object_path,
+//                                                const gchar *interface_name,
+//                                                GCancellable *cancellable,
+//                                                GError **error);
 
-//typedef void GVariantType;
-typedef struct _GVariantType GVariantType;
-typedef struct _GVariantBuilder GVariantBuilder;
-struct _GVariantBuilder {
-    /*< private >*/
-    union
-    {
-        struct {
-            gsize partial_magic;
-            const GVariantType *type;
-            gsize y[14];
-        } s;
-        gsize x[16];
-    } u;
-};
+// ---------- fp_g_variant_*  ----------
 
-
-static const GVariantType *            (*fp_g_variant_type_checked_)                 (const gchar *);
-#define G_VARIANT_TYPE(type_string)            (fp_g_variant_type_checked_ ((type_string)))
-#define G_VARIANT_TYPE_VARDICT              ((const GVariantType *) "a{sv}")
-
-static void (*fp_g_variant_builder_init)(GVariantBuilder *builder,
-                            const GVariantType *type);
-
-static void (*fp_g_variant_builder_add)(GVariantBuilder *builder,
-                           const gchar *format_string,
-                           ...);
+static GVariant *(*fp_g_variant_new)(const gchar *format_string, ...);
 
 static GVariant *(*fp_g_variant_new_string)(const gchar *string);
 
-typedef signed long gssize;
+static GVariant *(*fp_g_variant_new_boolean)(gboolean value);
+
+static GVariant *(*fp_g_variant_new_uint32)(guint32 value);
+
+static void (*fp_g_variant_get)(GVariant *value,
+                                const gchar *format_string,
+                                ...);
+
+static const gchar *(*fp_g_variant_get_type_string)(GVariant *value);
+
+static const gchar *(*fp_g_variant_get_string)(GVariant *value,
+                                               gsize *length);
+
+static guint32 (*fp_g_variant_get_uint32)(GVariant *value);
+
+static gboolean (*fp_g_variant_lookup)(GVariant *dictionary,
+                                       const gchar *key,
+                                       const gchar *format_string,
+                                       ...);
+
+static gboolean (*fp_g_variant_iter_loop)(GVariantIter *iter,
+                                          const gchar *format_string,
+                                          ...);
+
+static void (*fp_g_variant_iter_free)(GVariantIter *iter);
+
+static void (*fp_g_variant_unref)(GVariant *value);
+
+static void (*fp_g_variant_builder_init)(GVariantBuilder *builder,
+                                         const GVariantType *type);
+
+static void (*fp_g_variant_builder_add)(GVariantBuilder *builder,
+                                        const gchar *format_string,
+                                        ...);
+
+static GVariant *(*fp_g_variant_lookup_value)(GVariant *dictionary,
+                                              const gchar *key,
+                                              const GVariantType *expected_type);
+
+static gsize (*fp_g_variant_iter_init)(GVariantIter *iter,
+                                       GVariant *value);
+
+static gsize (*fp_g_variant_iter_n_children)(GVariantIter *iter);
+
+
+// ---------- fp_g_string_* ----------
 
 static GString *(*fp_g_string_new)(const gchar *init);
 
 static GString *(*fp_g_string_new_len)(const gchar *init,
                                        gssize len);
-static gchar   *(*fp_g_string_free)              (GString         *string,
-                                                gboolean         free_segment);
-static GString *(*fp_g_string_assign)(GString         *string,
-                                      const gchar     *rval);
+
+static GString *(*fp_g_string_erase)(GString *string,
+                                     gssize pos,
+                                     gssize len);
+
+static GString *(*fp_g_string_set_size)(GString *string,
+                                        gsize len);
+
+static GString *(*fp_g_string_append)(GString *string,
+                                      const gchar *val);
+
+static gchar *(*fp_g_string_free)(GString *string,
+                                  gboolean free_segment);
+
+static GString *(*fp_g_string_assign)(GString *string,
+                                      const gchar *rval);
 
 static guint (*fp_g_string_replace)(GString *string,
                                     const gchar *find,
                                     const gchar *replace,
                                     guint limit);
 
-static GVariant *(*fp_g_variant_new_uint32)(guint32 value);
+static void *(*fp_g_string_printf)(GString *string,
+                                   const gchar *format,
+                                   ...);
 
-static GVariant *(*fp_g_variant_new_boolean)(gboolean value);
-
-typedef void GUnixFDList;
-
-static GVariant *(*fp_g_dbus_proxy_call_with_unix_fd_list_sync)(GDBusProxy *proxy,
-                                                   const gchar *method_name,
-                                                   GVariant *parameters,
-                                                   GDBusCallFlags flags,
-                                                   gint timeout_msec,
-                                                   GUnixFDList *fd_list,
-                                                   GUnixFDList **out_fd_list,
-                                                   GCancellable *cancellable,
-                                                   GError **error);
+// ---------- * ----------
+static void (*fp_g_error_free)(GError *error);
 
 static gint (*fp_g_unix_fd_list_get)(GUnixFDList *list,
-                               gint index_,
-                               GError **error);
+                                     gint index_,
+                                     GError **error);
 
+static gboolean (*fp_g_file_get_contents)(const gchar *filename,
+                                          gchar **contents,
+                                          gsize *length,
+                                          GError **error);
 
-int getPipewireFd();
-
-void initRestoreToken();
-
-void errHandle(GError *error, int lineNum);
+static gboolean (*fp_g_file_set_contents_full)(const gchar *filename,
+                                               const gchar *contents,
+                                               gssize length,
+                                               GFileSetContentsFlags flags,
+                                               int mode,
+                                               GError **error);
 
 #endif /* !_GTK3_INTERFACE_H */

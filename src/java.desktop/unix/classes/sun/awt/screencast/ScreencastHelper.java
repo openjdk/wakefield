@@ -21,7 +21,7 @@ public class ScreencastHelper {
 
     static volatile boolean initComplete = false;
 
-    static CountDownLatch initCountDown = new CountDownLatch(1);
+    static volatile CountDownLatch initCountDown;
 
     private static final Runnable runnable = () -> {
         initScreencast(screencastDebug);
@@ -32,6 +32,8 @@ public class ScreencastHelper {
 
     @SuppressWarnings("removal")
     public static void initAndStart() {
+        initCountDown = new CountDownLatch(1);
+        initComplete = false;
         Thread pipewireThread = AccessController.doPrivileged((PrivilegedAction<Thread>) () -> {
             String name = "AWT-PIPEWIRE";
             Thread thread = new Thread(

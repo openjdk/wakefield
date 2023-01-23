@@ -23,59 +23,43 @@
  * questions.
  */
 
+
 #ifdef HEADLESS
 #error This file should not be included in headless library
 #endif
 
-
-#ifndef _PIPEWIRE_H
-#define _PIPEWIRE_H
+#ifndef _SCREENCAST_PORTAL_H
+#define _SCREENCAST_PORTAL_H
 
 #include "gtk_interface.h"
 
-#include <pipewire/pipewire.h>
-
-#include <spa/param/video/format-utils.h>
-#include <spa/debug/types.h>
-#include <spa/param/video/type-info.h>
-#include <semaphore.h>
-
-struct data_pw;
-
-extern int DEBUG_SCREENCAST_ENABLE;
+#define RESTORE_TOKEN_LENGTH 36
+#define PORTAL_TOKEN_TEMPLATE "javaPipewire%lu"
+#define PORTAL_REQUEST_TEMPLATE "/org/freedesktop/portal/desktop/request/%s/javaPipewire%lu"
 
 void debug_screencast(const char *__restrict fmt, ...);
 
-struct ScreenProps {
-    guint32 id;
-    GdkRectangle bounds;
+int getPipewireFd();
 
+void portalScreenCastCleanup();
 
-    GdkRectangle captureArea;
-    gchar *captureData;
-    struct data_pw* data;
-    volatile int shouldCapture;
-    sem_t captureDataReady;
+void initXdgDesktopPortal();
+
+void initRestoreToken();
+
+void errHandle(GError *error, int lineNum);
+
+struct XdgDesktopPortalApi {
+    GDBusConnection *connection;
+    GDBusProxy *screenCastProxy;
+    gchar *senderName;
+};
+
+struct DBusCallbackHelper {
+    guint id;
+    void *data;
+    gboolean isDone;
 };
 
 
-#define SCREEN_SPACE_DEFAULT_ALLOCATED 2
-struct ScreenSpace {
-    struct ScreenProps* screens;
-    int screenCount;
-    int allocated;
-};
-
-void printScreen(struct ScreenProps *mon);
-
-struct data_pw {
-    struct pw_main_loop *loop;
-    struct pw_stream *stream;
-
-    struct spa_video_info format;
-
-    struct ScreenProps* screenProps;
-    int saved;
-};
-
-#endif //_PIPEWIRE_H
+#endif //_SCREENCAST_PORTAL_H

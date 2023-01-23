@@ -378,8 +378,6 @@ public final class XToolkit extends UNIXToolkit implements Runnable {
                 if (log.isLoggable(PlatformLogger.Level.FINE)) {
                     dumpPeers();
                 }
-
-                ScreencastHelper.shutDown();
             };
             String name = "XToolkt-Shutdown-Thread";
             Thread shutdownThread = new Thread(

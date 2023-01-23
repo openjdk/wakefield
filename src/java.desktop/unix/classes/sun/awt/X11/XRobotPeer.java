@@ -73,10 +73,6 @@ final class XRobotPeer implements RobotPeer {
         }
 
         useGtk = (tryGtk && isGtkSupported);
-
-        if (useGtk && useScreencast) {
-            ScreencastHelper.initAndStart();
-        }
     }
 
     @Override
@@ -118,15 +114,14 @@ final class XRobotPeer implements RobotPeer {
 
     @Override
     public int [] getRGBPixels(Rectangle bounds) {
-        if (useScreencast) {
-            ScreencastHelper.waitForInit();
-        }
-
         int[] pixelArray = new int[bounds.width*bounds.height];
         if (useScreencast) {
+            ScreencastHelper.initAndStart();
+            ScreencastHelper.waitForInit();
             ScreencastHelper.getRGBPixelsImpl(
                     bounds.x, bounds.y, bounds.width, bounds.height, pixelArray
             );
+            ScreencastHelper.shutDown();
         } else {
             getRGBPixelsImpl(
                     xgc, bounds.x, bounds.y, bounds.width, bounds.height, pixelArray, useGtk

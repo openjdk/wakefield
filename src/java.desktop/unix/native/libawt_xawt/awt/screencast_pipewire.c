@@ -30,7 +30,7 @@
 #include "jni_util.h"
 #include "awt_p.h"
 #include "awt.h"
-#include "pipewire_related.h"
+#include "screencast_pipewire.h"
 #include <stdio.h>
 
 #include "gtk_interface.h"
@@ -41,16 +41,22 @@
 #include <sys/syscall.h>
 
 static volatile int init_complete = FALSE;
-GString * restoreTokenPath;
-GString * restoreToken;
+extern GString *restoreTokenPath;
+extern GString *restoreToken;
 
 int DEBUG_SCREENCAST_ENABLE = FALSE;
+
+static int pwFd = -1;
+struct ScreenSpace monSpace = {0};
 
 pid_t getTid() {
     return syscall(__NR_gettid);
 }
 
-void debug_screencast(const char *__restrict fmt, ...) {
+void debug_screencast(
+        const char *__restrict fmt,
+        ...
+) {
     if (DEBUG_SCREENCAST_ENABLE) {
         va_list myargs;
         va_start(myargs, fmt);
@@ -59,16 +65,26 @@ void debug_screencast(const char *__restrict fmt, ...) {
     }
 }
 
-struct ScreenSpace monSpace = {0};
+
+void printRect(
+        GdkRectangle gdkRectangle,
+        char *text
+) {
+    debug_screencast(
+            "%s\n"
+            "||\t               x %5i y %5i w %5i h %5i\n",
+            text,
+            gdkRectangle.x, gdkRectangle.y,
+            gdkRectangle.width, gdkRectangle.height
+    );
+}
 
 void printScreen(struct ScreenProps* mon) {
     debug_screencast(
-            "%s: %X address %p b %p ca %p \n\t))))) nodeID %i x %i y %i w %i h %i || capture area %i %i %i %i shouldCapture %i\n",
-            __FUNCTION__,
-            getTid(),
-            mon,
-            &mon->bounds,
-            &mon->captureArea,
+            "Display nodeID %i \n"
+            "||\tbounds         x %5i y %5i w %5i h %5i\n"
+            "||\tcapture area   x %5i y %5i w %5i h %5i shouldCapture %i\n",
+
             mon->id,
             mon->bounds.x,          mon->bounds.y,
             mon->bounds.width,      mon->bounds.height,
@@ -84,10 +100,12 @@ void initMonSpace() {
     monSpace.screens = calloc(SCREEN_SPACE_DEFAULT_ALLOCATED, sizeof(struct ScreenProps));
 }
 
-static int pwFd = -1;
+
 void initScreencast() {
+    pwFd = -1;
     debug_screencast("%s:%i \n", __FUNCTION__, __LINE__);
     initMonSpace();
+    initXdgDesktopPortal();
     pwFd = getPipewireFd();
 }
 
@@ -137,9 +155,16 @@ static gchar * cropTo(
     return (gchar*) outData;
 }
 
-static void on_param_changed(void *userdata, uint32_t id, const struct spa_pod *param) {
+static void on_param_changed(
+        void *userdata,
+        uint32_t id,
+        const struct spa_pod *param
+) {
     struct data_pw *data = userdata;
-
+    debug_screencast(
+            "%s:%i ===================================== %i\n",
+            __FUNCTION__, __LINE__, id
+    );
     if (param == NULL || id != SPA_PARAM_Format)
         return;
 
@@ -216,7 +241,10 @@ static void on_process(void *userdata) {
                 capture.width, capture.height
         );
 
-        debug_screencast("%s:%i data->screenProps %p\n", __FUNCTION__, __LINE__, data->screenProps);
+        debug_screencast(
+                "%s:%i data->screenProps %p\n",
+                __FUNCTION__, __LINE__, data->screenProps
+        );
 
 
         debug_screencast("%s:%i data ready\n", __FUNCTION__, __LINE__);
@@ -224,26 +252,28 @@ static void on_process(void *userdata) {
 
         data->saved = TRUE;
         debug_screencast("%s:%i Got image\n", __FUNCTION__, __LINE__);
-    } else {
-
     }
+
     pw_stream_queue_buffer(data->stream, b);
-    debug_screencast("%s:%i disabling stream %p\n", __FUNCTION__, __LINE__, data->stream);
+    debug_screencast("⚠⚠⚠ %s:%i disabling stream %p\n", __FUNCTION__, __LINE__, data->stream);
     pw_stream_set_active(data->stream, false);
 }
 
-static void on_state_changed (void *userdata, enum pw_stream_state old,
-                              enum pw_stream_state state, const char *error) {
+static void on_state_changed(
+        void *userdata,
+        enum pw_stream_state old,
+        enum pw_stream_state state,
+        const char *error
+) {
     struct data_pw *data = userdata;
-    debug_screencast("%s:%i width %i old %i new %i %s err %s on %p\n", __FUNCTION__, __LINE__,
-                     data->screenProps->bounds.width, old, state, pw_stream_state_as_string(state), error, getTid());
-
-    //TODO stream reconnect
-//    if (state == PW_STREAM_STATE_UNCONNECTED) {
-//        pw_stream_destroy(data->stream);
-//        data->stream = NULL;
-//        free(data);
-//    }
+    debug_screencast(
+            "%s:%i width %i old %i (%s) new %i (%s) err %s on %p\n",
+            __FUNCTION__, __LINE__,
+            data->screenProps->bounds.width,
+            old, pw_stream_state_as_string(old),
+            state, pw_stream_state_as_string(state),
+            error, getTid()
+    );
 }
 
 static const struct pw_stream_events stream_events = {
@@ -270,7 +300,7 @@ void connectStream(struct pw_main_loop *loop, int index) {
 
     data->stream = pw_stream_new_simple(
             pw_main_loop_get_loop(data->loop),
-            "AWT-video-capture", //TODO add id
+            "AWT-video-capture",
             pw_properties_new(
                     PW_KEY_MEDIA_TYPE, "Video",
                     PW_KEY_MEDIA_CATEGORY, "Capture",
@@ -281,27 +311,38 @@ void connectStream(struct pw_main_loop *loop, int index) {
 
     debug_screencast("%s:%i /// stream %p\n", __FUNCTION__, __LINE__, data->stream);
 
-
-    params[0] = spa_pod_builder_add_object(&b,
-                                           SPA_TYPE_OBJECT_Format, SPA_PARAM_EnumFormat,
-                                           SPA_FORMAT_mediaType,       SPA_POD_Id(SPA_MEDIA_TYPE_video),
-                                           SPA_FORMAT_mediaSubtype,    SPA_POD_Id(SPA_MEDIA_SUBTYPE_raw),
-                                           SPA_FORMAT_VIDEO_format,    SPA_POD_CHOICE_ENUM_Id(7,
-                                                                                              SPA_VIDEO_FORMAT_RGB,
-                                                                                              SPA_VIDEO_FORMAT_RGB,
-                                                                                              SPA_VIDEO_FORMAT_RGBA,
-                                                                                              SPA_VIDEO_FORMAT_RGBx,
-                                                                                              SPA_VIDEO_FORMAT_BGRx,
-                                                                                              SPA_VIDEO_FORMAT_YUY2,
-                                                                                              SPA_VIDEO_FORMAT_I420),
-                                           SPA_FORMAT_VIDEO_size,      SPA_POD_CHOICE_RANGE_Rectangle(
-            &SPA_RECTANGLE(320, 240),
-            &SPA_RECTANGLE(1, 1),
-            &SPA_RECTANGLE(8192, 8192)),
-                                           SPA_FORMAT_VIDEO_framerate, SPA_POD_CHOICE_RANGE_Fraction(
-            &SPA_FRACTION(25, 1),
-            &SPA_FRACTION(0, 1),
-            &SPA_FRACTION(1000, 1)));
+    params[0] = spa_pod_builder_add_object(
+            &b,
+            SPA_TYPE_OBJECT_Format,
+            SPA_PARAM_EnumFormat,
+            SPA_FORMAT_mediaType,
+            SPA_POD_Id(SPA_MEDIA_TYPE_video),
+            SPA_FORMAT_mediaSubtype,
+            SPA_POD_Id(SPA_MEDIA_SUBTYPE_raw),
+            SPA_FORMAT_VIDEO_format,
+            SPA_POD_CHOICE_ENUM_Id(
+                    7,
+                    SPA_VIDEO_FORMAT_RGB,
+                    SPA_VIDEO_FORMAT_RGB,
+                    SPA_VIDEO_FORMAT_RGBA,
+                    SPA_VIDEO_FORMAT_RGBx,
+                    SPA_VIDEO_FORMAT_BGRx,
+                    SPA_VIDEO_FORMAT_YUY2,
+                    SPA_VIDEO_FORMAT_I420
+            ),
+            SPA_FORMAT_VIDEO_size,
+            SPA_POD_CHOICE_RANGE_Rectangle(
+                    &SPA_RECTANGLE(320, 240),
+                    &SPA_RECTANGLE(1, 1),
+                    &SPA_RECTANGLE(8192, 8192)
+            ),
+            SPA_FORMAT_VIDEO_framerate,
+            SPA_POD_CHOICE_RANGE_Fraction(
+                    &SPA_FRACTION(25, 1),
+                    &SPA_FRACTION(0, 1),
+                    &SPA_FRACTION(1000, 1)
+            )
+    );
 
     data->screenProps = &monSpace.screens[index];
 
@@ -310,13 +351,15 @@ void connectStream(struct pw_main_loop *loop, int index) {
 
     monSpace.screens[index].data = data;
 
-    pw_stream_connect(data->stream,
-                      PW_DIRECTION_INPUT,
-                      monSpace.screens[index].id,
-                      PW_STREAM_FLAG_AUTOCONNECT |
-                      PW_STREAM_FLAG_INACTIVE |
-                      PW_STREAM_FLAG_MAP_BUFFERS,
-                      params, 1);
+    pw_stream_connect(
+            data->stream,
+            PW_DIRECTION_INPUT,
+            monSpace.screens[index].id,
+            PW_STREAM_FLAG_AUTOCONNECT
+            | PW_STREAM_FLAG_INACTIVE
+            | PW_STREAM_FLAG_MAP_BUFFERS,
+            params, 1
+    );
 }
 
 
@@ -372,11 +415,6 @@ void findScreens(GdkRectangle props) {
 }
 
 
-void printRect(GdkRectangle gdkRectangle, char* text) {
-    debug_screencast("%s\n\t"
-                    " x %i y %i w %i h %i\n",
-                     text, gdkRectangle.x, gdkRectangle.y, gdkRectangle.width, gdkRectangle.height);
-}
 
 /*
  * Class:     sun_awt_screencast_ScreencastHelper
@@ -384,15 +422,18 @@ void printRect(GdkRectangle gdkRectangle, char* text) {
  * Signature: (IIII[I)V
  */
 JNIEXPORT void JNICALL Java_sun_awt_screencast_ScreencastHelper_getRGBPixelsImpl(
-                            JNIEnv *env,
-                            jclass cls,
-                            jint jx,
-                            jint jy,
-                            jint jwidth,
-                            jint jheight,
-                            jintArray pixelArray) {
-    debug_screencast("%s:%i taking screenshot %i %i %i %i$$\n", __FUNCTION__, __LINE__, jx, jy, jwidth, jheight);
-
+        JNIEnv *env,
+        jclass cls,
+        jint jx,
+        jint jy,
+        jint jwidth,
+        jint jheight,
+        jintArray pixelArray
+) {
+    debug_screencast(
+            "%s:%i taking screenshot at x: %5i y %5i w %5i h %5i\n",
+            __FUNCTION__, __LINE__, jx, jy, jwidth, jheight
+    );
 
     GdkRectangle requestedArea = { jx, jy, jwidth, jheight};
     findScreens(requestedArea);
@@ -403,7 +444,8 @@ JNIEXPORT void JNICALL Java_sun_awt_screencast_ScreencastHelper_getRGBPixelsImpl
         if (props->shouldCapture) {
             debug_screencast("%s:%i @@@ resuming mon %i stream %p \n", __FUNCTION__, __LINE__, i, props->data->stream );
             sem_init(&props->captureDataReady, 0, 0);
-            pw_stream_set_active(props->data->stream, true);
+            int ret = pw_stream_set_active(props->data->stream, true);
+            debug_screencast("⚠⚠⚠ pw_stream_set_active %i\n", ret);
         }
     }
 
@@ -417,6 +459,38 @@ JNIEXPORT void JNICALL Java_sun_awt_screencast_ScreencastHelper_getRGBPixelsImpl
 
             debug_screencast("%s:%i waiting for data$$ on %p\n", __FUNCTION__, __LINE__, getTid());
             sem_wait(&screenProps->captureDataReady);
+////TODO hangs sometimes?
+//            {
+//                int s;
+//                struct timespec ts;
+//
+//                if (clock_gettime(CLOCK_REALTIME, &ts) == -1) {
+//                    debug_screencast("⚠⚠⚠ clock_gettime failed\n");
+//                }
+//
+//                ts.tv_sec += 5;
+//
+//                while (
+//                    (s = sem_timedwait(&screenProps->captureDataReady, &ts)) == -1
+//                    && errno == EINTR
+//                ) {
+//                    continue;
+//                }
+//
+//                if (s == -1) {
+//                    debug_screencast("⚠⚠⚠\n");
+//                    debug_screencast("⚠⚠⚠\n");
+//                    debug_screencast("⚠⚠⚠ data time out\n");
+//                    debug_screencast("⚠⚠⚠\n");
+//                    debug_screencast("⚠⚠⚠\n");
+//                    if (errno == ETIMEDOUT) {
+//                        printf("sem_timedwait() timed out\n");
+//                    } else {
+//                        perror("sem_timedwait");
+//                    }
+//
+//                }
+//            }
             sem_destroy(&screenProps->captureDataReady);
 
             GdkRectangle captureArea  = screenProps->captureArea;
@@ -451,6 +525,9 @@ JNIEXPORT void JNICALL Java_sun_awt_screencast_ScreencastHelper_getRGBPixelsImpl
             screenProps->captureData = NULL;
 
             screenProps->shouldCapture = false;
+
+            pw_stream_set_active(screenProps->data->stream, false);
+            pw_stream_disconnect(screenProps->data->stream);
         }
     }
 
@@ -464,22 +541,23 @@ JNIEXPORT void JNICALL Java_sun_awt_screencast_ScreencastHelper_getRGBPixelsImpl
  */
 JNIEXPORT void JNICALL Java_sun_awt_screencast_ScreencastHelper_initScreencast(
         JNIEnv * env, jclass class,
-        jboolean screencastDebug) {
+        jboolean screencastDebug
+) {
 
     DEBUG_SCREENCAST_ENABLE = screencastDebug;
 
+    debug_screencast("⚠⚠⚠ %s:%i init_complete %i\n", __FUNCTION__, __LINE__, init_complete);
     if (!init_complete) {
-
-        debug_screencast("%s:%i \n", __FUNCTION__, __LINE__);
         initRestoreToken();
 
-        debug_screencast("%s:%i INIT %s\n", __FUNCTION__, __LINE__, restoreTokenPath->str);
+        debug_screencast(
+            "%s:%i using restore token location: %s\n",
+            __FUNCTION__, __LINE__, restoreTokenPath->str
+        );
+
         initScreencast();
 
         debug_screencast("%s:%i %i\n", __FUNCTION__, __LINE__, pwFd);
-
-        uint8_t buffer[1024];
-        struct spa_pod_builder b = SPA_POD_BUILDER_INIT(buffer, sizeof(buffer));
 
         pw_init(NULL, NULL);
         init_complete = TRUE;
@@ -493,7 +571,6 @@ JNIEXPORT void JNICALL Java_sun_awt_screencast_ScreencastHelper_initScreencast(
     }
 
     debug_screencast("%s:%i new loop %p\n", __FUNCTION__, __LINE__, theLoop);
-
 }
 
 
@@ -502,24 +579,38 @@ JNIEXPORT void JNICALL Java_sun_awt_screencast_ScreencastHelper_initScreencast(
  * Method:    start
  * Signature: ()V
  */
-JNIEXPORT void JNICALL Java_sun_awt_screencast_ScreencastHelper_start(JNIEnv * env, jclass class) {
+JNIEXPORT void JNICALL Java_sun_awt_screencast_ScreencastHelper_start(
+        JNIEnv * env,
+        jclass class
+) {
 
-    debug_screencast("%s:%i pw_main_loop_run %p\n", __FUNCTION__, __LINE__, theLoop);
+    debug_screencast("⚠⚠⚠ %s:%i pw_main_loop_run %p\n", __FUNCTION__, __LINE__, theLoop);
     pw_main_loop_run(theLoop);
-    debug_screencast("%s:%i EXITED pw_main_loop_run\n", __FUNCTION__, __LINE__);
+    debug_screencast("⚠⚠⚠ %s:%i EXITED pw_main_loop_run\n", __FUNCTION__, __LINE__);
 }
-
-
 
 /*
  * Class:     sun_awt_screencast_ScreencastHelper
  * Method:    stop
  * Signature: ()V
  */
-JNIEXPORT void JNICALL Java_sun_awt_screencast_ScreencastHelper_stop(JNIEnv * env, jclass class) {
-    debug_screencast("%s:%i STOPPING %p\n", __FUNCTION__, __LINE__, theLoop);
+JNIEXPORT void JNICALL Java_sun_awt_screencast_ScreencastHelper_stop(
+        JNIEnv * env,   
+        jclass class
+) {
+    debug_screencast("⚠⚠⚠ %s:%i STOPPING %p\n", __FUNCTION__, __LINE__, theLoop);
     if (theLoop) {
+        for (int i = 0; i < monSpace.screenCount; ++i) {
+            struct ScreenProps *screenProps = &monSpace.screens[i];
+            pw_stream_destroy(screenProps->data->stream);
+        }
+        close(pwFd);
+        pwFd = -1;
+
+        portalScreenCastCleanup();
+
         pw_main_loop_quit(theLoop);
         theLoop = NULL;
+        init_complete = FALSE;
     }
 }
