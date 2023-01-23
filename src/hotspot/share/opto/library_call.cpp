@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -51,6 +51,7 @@
 #include "opto/rootnode.hpp"
 #include "opto/subnode.hpp"
 #include "prims/unsafe.hpp"
+#include "runtime/jniHandles.inline.hpp"
 #include "runtime/objectMonitor.hpp"
 #include "runtime/sharedRuntime.hpp"
 #include "runtime/stubRoutines.hpp"
@@ -307,6 +308,8 @@ bool LibraryCallKit::try_to_inline(int predicate) {
   case vmIntrinsics::_equalsL:                  return inline_string_equals(StrIntrinsicNode::LL);
   case vmIntrinsics::_equalsU:                  return inline_string_equals(StrIntrinsicNode::UU);
 
+  case vmIntrinsics::_vectorizedHashCode:       return inline_vectorizedHashCode();
+
   case vmIntrinsics::_toBytesStringU:           return inline_string_toBytesU();
   case vmIntrinsics::_getCharsStringU:          return inline_string_getCharsU();
   case vmIntrinsics::_getCharStringU:           return inline_string_char_access(!is_store);
@@ -472,8 +475,8 @@ bool LibraryCallKit::try_to_inline(int predicate) {
   case vmIntrinsics::_currentThread:            return inline_native_currentThread();
   case vmIntrinsics::_setCurrentThread:         return inline_native_setCurrentThread();
 
-  case vmIntrinsics::_extentLocalCache:          return inline_native_extentLocalCache();
-  case vmIntrinsics::_setExtentLocalCache:       return inline_native_setExtentLocalCache();
+  case vmIntrinsics::_scopedValueCache:          return inline_native_scopedValueCache();
+  case vmIntrinsics::_setScopedValueCache:       return inline_native_setScopedValueCache();
 
 #ifdef JFR_HAVE_INTRINSICS
   case vmIntrinsics::_counterTime:              return inline_native_time_funcs(CAST_FROM_FN_PTR(address, JfrTime::time_function()), "counterTime");
@@ -608,10 +611,14 @@ bool LibraryCallKit::try_to_inline(int predicate) {
 
   case vmIntrinsics::_ghash_processBlocks:
     return inline_ghash_processBlocks();
+  case vmIntrinsics::_chacha20Block:
+    return inline_chacha20Block();
   case vmIntrinsics::_base64_encodeBlock:
     return inline_base64_encodeBlock();
   case vmIntrinsics::_base64_decodeBlock:
     return inline_base64_decodeBlock();
+  case vmIntrinsics::_poly1305_processBlocks:
+    return inline_poly1305_processBlocks();
 
   case vmIntrinsics::_encodeISOArray:
   case vmIntrinsics::_encodeByteISOArray:
@@ -716,6 +723,8 @@ bool LibraryCallKit::try_to_inline(int predicate) {
     return inline_vector_extract();
   case vmIntrinsics::_VectorCompressExpand:
     return inline_vector_compress_expand();
+  case vmIntrinsics::_IndexVector:
+    return inline_index_vector();
 
   case vmIntrinsics::_getObjectSize:
     return inline_getObjectSize();
@@ -1059,6 +1068,7 @@ bool LibraryCallKit::inline_array_equals(StrIntrinsicNode::ArgEnc ae) {
 
   return true;
 }
+
 
 //------------------------------inline_countPositives------------------------------
 bool LibraryCallKit::inline_countPositives() {
@@ -1786,31 +1796,32 @@ bool LibraryCallKit::inline_math_pow() {
 
 //------------------------------inline_math_native-----------------------------
 bool LibraryCallKit::inline_math_native(vmIntrinsics::ID id) {
-#define FN_PTR(f) CAST_FROM_FN_PTR(address, f)
   switch (id) {
-    // These intrinsics are not properly supported on all hardware
   case vmIntrinsics::_dsin:
     return StubRoutines::dsin() != NULL ?
       runtime_math(OptoRuntime::Math_D_D_Type(), StubRoutines::dsin(), "dsin") :
-      runtime_math(OptoRuntime::Math_D_D_Type(), FN_PTR(SharedRuntime::dsin),   "SIN");
+      runtime_math(OptoRuntime::Math_D_D_Type(), CAST_FROM_FN_PTR(address, SharedRuntime::dsin),   "SIN");
   case vmIntrinsics::_dcos:
     return StubRoutines::dcos() != NULL ?
       runtime_math(OptoRuntime::Math_D_D_Type(), StubRoutines::dcos(), "dcos") :
-      runtime_math(OptoRuntime::Math_D_D_Type(), FN_PTR(SharedRuntime::dcos),   "COS");
+      runtime_math(OptoRuntime::Math_D_D_Type(), CAST_FROM_FN_PTR(address, SharedRuntime::dcos),   "COS");
   case vmIntrinsics::_dtan:
     return StubRoutines::dtan() != NULL ?
       runtime_math(OptoRuntime::Math_D_D_Type(), StubRoutines::dtan(), "dtan") :
-      runtime_math(OptoRuntime::Math_D_D_Type(), FN_PTR(SharedRuntime::dtan), "TAN");
+      runtime_math(OptoRuntime::Math_D_D_Type(), CAST_FROM_FN_PTR(address, SharedRuntime::dtan), "TAN");
+  case vmIntrinsics::_dexp:
+    return StubRoutines::dexp() != NULL ?
+      runtime_math(OptoRuntime::Math_D_D_Type(), StubRoutines::dexp(),  "dexp") :
+      runtime_math(OptoRuntime::Math_D_D_Type(), CAST_FROM_FN_PTR(address, SharedRuntime::dexp),  "EXP");
   case vmIntrinsics::_dlog:
     return StubRoutines::dlog() != NULL ?
       runtime_math(OptoRuntime::Math_D_D_Type(), StubRoutines::dlog(), "dlog") :
-      runtime_math(OptoRuntime::Math_D_D_Type(), FN_PTR(SharedRuntime::dlog),   "LOG");
+      runtime_math(OptoRuntime::Math_D_D_Type(), CAST_FROM_FN_PTR(address, SharedRuntime::dlog),   "LOG");
   case vmIntrinsics::_dlog10:
     return StubRoutines::dlog10() != NULL ?
       runtime_math(OptoRuntime::Math_D_D_Type(), StubRoutines::dlog10(), "dlog10") :
-      runtime_math(OptoRuntime::Math_D_D_Type(), FN_PTR(SharedRuntime::dlog10), "LOG10");
+      runtime_math(OptoRuntime::Math_D_D_Type(), CAST_FROM_FN_PTR(address, SharedRuntime::dlog10), "LOG10");
 
-    // These intrinsics are supported on all hardware
   case vmIntrinsics::_roundD: return Matcher::match_rule_supported(Op_RoundD) ? inline_double_math(id) : false;
   case vmIntrinsics::_ceil:
   case vmIntrinsics::_floor:
@@ -1823,12 +1834,6 @@ bool LibraryCallKit::inline_math_native(vmIntrinsics::ID id) {
   case vmIntrinsics::_fabs:   return Matcher::match_rule_supported(Op_AbsF)   ? inline_math(id) : false;
   case vmIntrinsics::_iabs:   return Matcher::match_rule_supported(Op_AbsI)   ? inline_math(id) : false;
   case vmIntrinsics::_labs:   return Matcher::match_rule_supported(Op_AbsL)   ? inline_math(id) : false;
-
-  case vmIntrinsics::_dexp:
-    return StubRoutines::dexp() != NULL ?
-      runtime_math(OptoRuntime::Math_D_D_Type(), StubRoutines::dexp(),  "dexp") :
-      runtime_math(OptoRuntime::Math_D_D_Type(), FN_PTR(SharedRuntime::dexp),  "EXP");
-#undef FN_PTR
 
   case vmIntrinsics::_dpow:      return inline_math_pow();
   case vmIntrinsics::_dcopySign: return inline_double_math(id);
@@ -3120,7 +3125,8 @@ bool LibraryCallKit::inline_native_getEventWriter() {
   ciInstanceKlass* const instklass_EventWriter = klass_EventWriter->as_instance_klass();
   const TypeKlassPtr* const aklass = TypeKlassPtr::make(instklass_EventWriter);
   const TypeOopPtr* const xtype = aklass->as_instance_type();
-  Node* event_writer = access_load(jobj, xtype, T_OBJECT, IN_NATIVE | C2_CONTROL_DEPENDENT_LOAD);
+  Node* jobj_untagged = _gvn.transform(new AddPNode(top(), jobj, _gvn.MakeConX(-JNIHandles::TypeTag::global)));
+  Node* event_writer = access_load(jobj_untagged, xtype, T_OBJECT, IN_NATIVE | C2_CONTROL_DEPENDENT_LOAD);
 
   // Load the current thread id from the event writer object.
   Node* const event_writer_tid = load_field_from_object(event_writer, "threadID", "J");
@@ -3349,45 +3355,47 @@ bool LibraryCallKit::inline_native_setCurrentThread() {
     = make_load(NULL, p, p->bottom_type()->is_ptr(), T_OBJECT, MemNode::unordered);
   thread_obj_handle = _gvn.transform(thread_obj_handle);
   const TypePtr *adr_type = _gvn.type(thread_obj_handle)->isa_ptr();
-  // Stores of oops to native memory not supported yet by BarrierSetC2::store_at_resolved
-  // access_store_at(NULL, thread_obj_handle, adr_type, arr, _gvn.type(arr), T_OBJECT, IN_NATIVE | MO_UNORDERED);
-  store_to_memory(control(), thread_obj_handle, arr, T_OBJECT, adr_type, MemNode::unordered);
+  access_store_at(NULL, thread_obj_handle, adr_type, arr, _gvn.type(arr), T_OBJECT, IN_NATIVE | MO_UNORDERED);
   JFR_ONLY(extend_setCurrentThread(thread, arr);)
   return true;
 }
 
-Node* LibraryCallKit::extentLocalCache_helper() {
+Node* LibraryCallKit::scopedValueCache_helper() {
   ciKlass *objects_klass = ciObjArrayKlass::make(env()->Object_klass());
   const TypeOopPtr *etype = TypeOopPtr::make_from_klass(env()->Object_klass());
 
   bool xk = etype->klass_is_exact();
 
   Node* thread = _gvn.transform(new ThreadLocalNode());
-  Node* p = basic_plus_adr(top()/*!oop*/, thread, in_bytes(JavaThread::extentLocalCache_offset()));
-  return _gvn.transform(LoadNode::make(_gvn, NULL, immutable_memory(), p, p->bottom_type()->is_ptr(),
-        TypeRawPtr::NOTNULL, T_ADDRESS, MemNode::unordered));
+  Node* p = basic_plus_adr(top()/*!oop*/, thread, in_bytes(JavaThread::scopedValueCache_offset()));
+  // We cannot use immutable_memory() because we might flip onto a
+  // different carrier thread, at which point we'll need to use that
+  // carrier thread's cache.
+  // return _gvn.transform(LoadNode::make(_gvn, NULL, immutable_memory(), p, p->bottom_type()->is_ptr(),
+  //       TypeRawPtr::NOTNULL, T_ADDRESS, MemNode::unordered));
+  return make_load(NULL, p, p->bottom_type()->is_ptr(), T_ADDRESS, MemNode::unordered);
 }
 
-//------------------------inline_native_extentLocalCache------------------
-bool LibraryCallKit::inline_native_extentLocalCache() {
+//------------------------inline_native_scopedValueCache------------------
+bool LibraryCallKit::inline_native_scopedValueCache() {
   ciKlass *objects_klass = ciObjArrayKlass::make(env()->Object_klass());
   const TypeOopPtr *etype = TypeOopPtr::make_from_klass(env()->Object_klass());
   const TypeAry* arr0 = TypeAry::make(etype, TypeInt::POS);
 
-  // Because we create the extentLocal cache lazily we have to make the
+  // Because we create the scopedValue cache lazily we have to make the
   // type of the result BotPTR.
   bool xk = etype->klass_is_exact();
   const Type* objects_type = TypeAryPtr::make(TypePtr::BotPTR, arr0, objects_klass, xk, 0);
-  Node* cache_obj_handle = extentLocalCache_helper();
+  Node* cache_obj_handle = scopedValueCache_helper();
   set_result(access_load(cache_obj_handle, objects_type, T_OBJECT, IN_NATIVE));
 
   return true;
 }
 
-//------------------------inline_native_setExtentLocalCache------------------
-bool LibraryCallKit::inline_native_setExtentLocalCache() {
+//------------------------inline_native_setScopedValueCache------------------
+bool LibraryCallKit::inline_native_setScopedValueCache() {
   Node* arr = argument(0);
-  Node* cache_obj_handle = extentLocalCache_helper();
+  Node* cache_obj_handle = scopedValueCache_helper();
 
   const TypePtr *adr_type = _gvn.type(cache_obj_handle)->isa_ptr();
   store_to_memory(control(), cache_obj_handle, arr, T_OBJECT, adr_type,
@@ -3662,7 +3670,7 @@ bool LibraryCallKit::inline_Class_cast() {
       // Don't use intrinsic when class is not loaded.
       return false;
     } else {
-      int static_res = C->static_subtype_check(TypeKlassPtr::make(tm->as_klass()), tp->as_klass_type());
+      int static_res = C->static_subtype_check(TypeKlassPtr::make(tm->as_klass(), Type::trust_interfaces), tp->as_klass_type());
       if (static_res == Compile::SSC_always_true) {
         // isInstance() is true - fold the code.
         set_result(obj);
@@ -5300,7 +5308,7 @@ bool LibraryCallKit::inline_arraycopy() {
 AllocateArrayNode*
 LibraryCallKit::tightly_coupled_allocation(Node* ptr) {
   if (stopped())             return NULL;  // no fast path
-  if (C->AliasLevel() == 0)  return NULL;  // no MergeMems around
+  if (!C->do_aliasing())     return NULL;  // no MergeMems around
 
   AllocateArrayNode* alloc = AllocateArrayNode::Ideal_array_allocation(ptr, &_gvn);
   if (alloc == NULL)  return NULL;
@@ -5917,6 +5925,38 @@ bool LibraryCallKit::inline_vectorizedMismatch() {
   set_control(exit_block);
   set_all_memory(memory_phi);
   set_result(result_phi);
+
+  return true;
+}
+
+//------------------------------inline_vectorizedHashcode----------------------------
+bool LibraryCallKit::inline_vectorizedHashCode() {
+  assert(UseVectorizedHashCodeIntrinsic, "not implemented on this platform");
+
+  assert(callee()->signature()->size() == 5, "vectorizedHashCode has 5 parameters");
+  Node* array          = argument(0);
+  Node* offset         = argument(1);
+  Node* length         = argument(2);
+  Node* initialValue   = argument(3);
+  Node* basic_type     = argument(4);
+
+  array = must_be_not_null(array, true);
+  if (basic_type == top()) {
+    return false; // failed input validation
+  }
+
+  const TypeInt* basic_type_t = _gvn.type(basic_type)->is_int();
+  if (!basic_type_t->is_con()) {
+    return false; // Only intrinsify if mode argument is constant
+  }
+  BasicType bt = (BasicType)basic_type_t->get_con();
+
+  // Resolve address of first element
+  Node* array_start = array_element_address(array, offset, bt);
+
+  set_result(_gvn.transform(new VectorizedHashCodeNode(control(), memory(TypeAryPtr::get_array_body_type(bt)),
+    array_start, length, initialValue, basic_type)));
+  clear_upper_avx();
 
   return true;
 }
@@ -6898,6 +6938,36 @@ bool LibraryCallKit::inline_ghash_processBlocks() {
   return true;
 }
 
+//------------------------------inline_chacha20Block
+bool LibraryCallKit::inline_chacha20Block() {
+  address stubAddr;
+  const char *stubName;
+  assert(UseChaCha20Intrinsics, "need ChaCha20 intrinsics support");
+
+  stubAddr = StubRoutines::chacha20Block();
+  stubName = "chacha20Block";
+
+  Node* state          = argument(0);
+  Node* result         = argument(1);
+
+  state = must_be_not_null(state, true);
+  result = must_be_not_null(result, true);
+
+  Node* state_start  = array_element_address(state, intcon(0), T_INT);
+  assert(state_start, "state is NULL");
+  Node* result_start  = array_element_address(result, intcon(0), T_BYTE);
+  assert(result_start, "result is NULL");
+
+  Node* cc20Blk = make_runtime_call(RC_LEAF|RC_NO_FP,
+                                  OptoRuntime::chacha20Block_Type(),
+                                  stubAddr, stubName, TypePtr::BOTTOM,
+                                  state_start, result_start);
+  // return key stream length (int)
+  Node* retvalue = _gvn.transform(new ProjNode(cc20Blk, TypeFunc::Parms));
+  set_result(retvalue);
+  return true;
+}
+
 bool LibraryCallKit::inline_base64_encodeBlock() {
   address stubAddr;
   const char *stubName;
@@ -6965,6 +7035,42 @@ bool LibraryCallKit::inline_base64_decodeBlock() {
   return true;
 }
 
+bool LibraryCallKit::inline_poly1305_processBlocks() {
+  address stubAddr;
+  const char *stubName;
+  assert(UsePoly1305Intrinsics, "need Poly intrinsics support");
+  assert(callee()->signature()->size() == 5, "poly1305_processBlocks has %d parameters", callee()->signature()->size());
+  stubAddr = StubRoutines::poly1305_processBlocks();
+  stubName = "poly1305_processBlocks";
+
+  if (!stubAddr) return false;
+  null_check_receiver();  // null-check receiver
+  if (stopped())  return true;
+
+  Node* input = argument(1);
+  Node* input_offset = argument(2);
+  Node* len = argument(3);
+  Node* alimbs = argument(4);
+  Node* rlimbs = argument(5);
+
+  input = must_be_not_null(input, true);
+  alimbs = must_be_not_null(alimbs, true);
+  rlimbs = must_be_not_null(rlimbs, true);
+
+  Node* input_start = array_element_address(input, input_offset, T_BYTE);
+  assert(input_start, "input array is NULL");
+  Node* acc_start = array_element_address(alimbs, intcon(0), T_LONG);
+  assert(acc_start, "acc array is NULL");
+  Node* r_start = array_element_address(rlimbs, intcon(0), T_LONG);
+  assert(r_start, "r array is NULL");
+
+  Node* call = make_runtime_call(RC_LEAF | RC_NO_FP,
+                                 OptoRuntime::poly1305_processBlocks_Type(),
+                                 stubAddr, stubName, TypePtr::BOTTOM,
+                                 input_start, len, acc_start, r_start);
+  return true;
+}
+
 //------------------------------inline_digestBase_implCompress-----------------------
 //
 // Calculate MD5 for single-block byte[] array.
@@ -7004,7 +7110,7 @@ bool LibraryCallKit::inline_digestBase_implCompress(vmIntrinsics::ID id) {
   src = must_be_not_null(src, true);
   Node* src_start = array_element_address(src, ofs, src_elem);
   Node* state = NULL;
-  Node* digest_length = NULL;
+  Node* block_size = NULL;
   address stubAddr;
   const char *stubName;
 
@@ -7038,8 +7144,8 @@ bool LibraryCallKit::inline_digestBase_implCompress(vmIntrinsics::ID id) {
     state = get_state_from_digest_object(digestBase_obj, T_BYTE);
     stubAddr = StubRoutines::sha3_implCompress();
     stubName = "sha3_implCompress";
-    digest_length = get_digest_length_from_digest_object(digestBase_obj);
-    if (digest_length == NULL) return false;
+    block_size = get_block_size_from_digest_object(digestBase_obj);
+    if (block_size == NULL) return false;
     break;
   default:
     fatal_unexpected_iid(id);
@@ -7052,14 +7158,14 @@ bool LibraryCallKit::inline_digestBase_implCompress(vmIntrinsics::ID id) {
 
   // Call the stub.
   Node* call;
-  if (digest_length == NULL) {
+  if (block_size == NULL) {
     call = make_runtime_call(RC_LEAF|RC_NO_FP, OptoRuntime::digestBase_implCompress_Type(false),
                              stubAddr, stubName, TypePtr::BOTTOM,
                              src_start, state);
   } else {
     call = make_runtime_call(RC_LEAF|RC_NO_FP, OptoRuntime::digestBase_implCompress_Type(true),
                              stubAddr, stubName, TypePtr::BOTTOM,
-                             src_start, state, digest_length);
+                             src_start, state, block_size);
   }
 
   return true;
@@ -7164,22 +7270,22 @@ bool LibraryCallKit::inline_digestBase_implCompressMB(Node* digestBase_obj, ciIn
                                                       BasicType elem_type, address stubAddr, const char *stubName,
                                                       Node* src_start, Node* ofs, Node* limit) {
   const TypeKlassPtr* aklass = TypeKlassPtr::make(instklass_digestBase);
-  const TypeOopPtr* xtype = aklass->as_instance_type()->cast_to_ptr_type(TypePtr::NotNull);
+  const TypeOopPtr* xtype = aklass->cast_to_exactness(false)->as_instance_type()->cast_to_ptr_type(TypePtr::NotNull);
   Node* digest_obj = new CheckCastPPNode(control(), digestBase_obj, xtype);
   digest_obj = _gvn.transform(digest_obj);
 
   Node* state = get_state_from_digest_object(digest_obj, elem_type);
   if (state == NULL) return false;
 
-  Node* digest_length = NULL;
+  Node* block_size = NULL;
   if (strcmp("sha3_implCompressMB", stubName) == 0) {
-    digest_length = get_digest_length_from_digest_object(digest_obj);
-    if (digest_length == NULL) return false;
+    block_size = get_block_size_from_digest_object(digest_obj);
+    if (block_size == NULL) return false;
   }
 
   // Call the stub.
   Node* call;
-  if (digest_length == NULL) {
+  if (block_size == NULL) {
     call = make_runtime_call(RC_LEAF|RC_NO_FP,
                              OptoRuntime::digestBase_implCompressMB_Type(false),
                              stubAddr, stubName, TypePtr::BOTTOM,
@@ -7188,7 +7294,7 @@ bool LibraryCallKit::inline_digestBase_implCompressMB(Node* digestBase_obj, ciIn
      call = make_runtime_call(RC_LEAF|RC_NO_FP,
                              OptoRuntime::digestBase_implCompressMB_Type(true),
                              stubAddr, stubName, TypePtr::BOTTOM,
-                             src_start, state, digest_length, ofs, limit);
+                             src_start, state, block_size, ofs, limit);
   }
 
   // return ofs (int)
@@ -7345,11 +7451,11 @@ Node * LibraryCallKit::get_state_from_digest_object(Node *digest_object, BasicTy
   return state;
 }
 
-//------------------------------get_digest_length_from_sha3_object----------------------------------
-Node * LibraryCallKit::get_digest_length_from_digest_object(Node *digest_object) {
-  Node* digest_length = load_field_from_object(digest_object, "digestLength", "I");
-  assert (digest_length != NULL, "sanity");
-  return digest_length;
+//------------------------------get_block_size_from_sha3_object----------------------------------
+Node * LibraryCallKit::get_block_size_from_digest_object(Node *digest_object) {
+  Node* block_size = load_field_from_object(digest_object, "blockSize", "I");
+  assert (block_size != NULL, "sanity");
+  return block_size;
 }
 
 //----------------------------inline_digestBase_implCompressMB_predicate----------------------------
@@ -7774,8 +7880,15 @@ bool LibraryCallKit::inline_blackhole() {
   assert(callee()->is_empty(), "Should have been checked before: only empty methods here");
   assert(callee()->holder()->is_loaded(), "Should have been checked before: only methods for loaded classes here");
 
+  // Blackhole node pinches only the control, not memory. This allows
+  // the blackhole to be pinned in the loop that computes blackholed
+  // values, but have no other side effects, like breaking the optimizations
+  // across the blackhole.
+
+  Node* bh = _gvn.transform(new BlackholeNode(control()));
+  set_control(_gvn.transform(new ProjNode(bh, TypeFunc::Control)));
+
   // Bind call arguments as blackhole arguments to keep them alive
-  Node* bh = insert_mem_bar(Op_Blackhole);
   uint nargs = callee()->arg_size();
   for (uint i = 0; i < nargs; i++) {
     bh->add_req(argument(i));
