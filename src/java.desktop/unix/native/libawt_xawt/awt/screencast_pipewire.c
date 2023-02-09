@@ -422,7 +422,6 @@ static bool startStream(
             PW_DIRECTION_INPUT,
             node,
             PW_STREAM_FLAG_AUTOCONNECT
-//            | PW_STREAM_FLAG_INACTIVE
             | PW_STREAM_FLAG_MAP_BUFFERS,
             &param,
             1
@@ -725,9 +724,10 @@ JNIEXPORT void JNICALL Java_sun_awt_screencast_ScreencastHelper_getRGBPixelsImpl
 
     initRestoreToken();
 
-    initScreencast();
-
-    if (doLoop(requestedArea)) {
+    if (
+        initScreencast()
+        && doLoop(requestedArea)
+    ) {
         while (!isAllDataReady()) {
             pw_thread_loop_wait(pw.loop);
         }

@@ -476,7 +476,7 @@ gboolean portalScreenCastCreateSession() {
         }
 
         debug_screencast(
-                "%s:%i ⚠⚠⚠ session_handle %s\n",
+                "⚠⚠⚠ %s:%i session_handle %s\n",
                 __FUNCTION__, __LINE__, portal->screenCastSessionHandle
         );
     }
@@ -632,6 +632,8 @@ static void callbackScreenCastStart(
 
     if (status != 0) {
         debug_screencast("Failed to start screencast: %u\n", status);
+        helper->data = (void *) 0; //TODO let java know about failure
+        helper->isDone = TRUE;
         return;
     }
 
@@ -841,8 +843,10 @@ void portalScreenCastCleanup() {
         portal->screenCastProxy = NULL;
     }
 
-    free(portal->senderName);
-    portal->senderName = NULL;
+    if (portal->senderName) {
+        free(portal->senderName);
+        portal->senderName = NULL;
+    }
 
     free(portal);
     portal = NULL;
