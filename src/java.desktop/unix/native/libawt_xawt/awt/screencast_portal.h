@@ -43,7 +43,7 @@ int getPipewireFd();
 
 void portalScreenCastCleanup();
 
-void initXdgDesktopPortal();
+gboolean initXdgDesktopPortal();
 
 void initRestoreToken();
 
@@ -53,6 +53,7 @@ struct XdgDesktopPortalApi {
     GDBusConnection *connection;
     GDBusProxy *screenCastProxy;
     gchar *senderName;
+    char *screenCastSessionHandle;
 };
 
 struct DBusCallbackHelper {

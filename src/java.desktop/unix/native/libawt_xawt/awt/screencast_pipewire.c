@@ -36,22 +36,13 @@
 #include "gtk_interface.h"
 #include "gtk3_interface.h"
 
-#include <semaphore.h>
-#include <unistd.h>
-#include <sys/syscall.h>
-
-static volatile int init_complete = FALSE;
 extern GString *restoreTokenPath;
 extern GString *restoreToken;
 
 int DEBUG_SCREENCAST_ENABLE = FALSE;
 
-static int pwFd = -1;
 struct ScreenSpace monSpace = {0};
-
-pid_t getTid() {
-    return syscall(__NR_gettid);
-}
+static struct PwLoopData pw = {0};
 
 void debug_screencast(
         const char *__restrict fmt,
@@ -66,7 +57,7 @@ void debug_screencast(
 }
 
 
-void printRect(
+void debug_rectangle(
         GdkRectangle gdkRectangle,
         char *text
 ) {
@@ -79,7 +70,7 @@ void printRect(
     );
 }
 
-void printScreen(struct ScreenProps* mon) {
+void debug_screen(struct ScreenProps* mon) {
     debug_screencast(
             "Display nodeID %i \n"
             "||\tbounds         x %5i y %5i w %5i h %5i\n"
@@ -94,19 +85,75 @@ void printScreen(struct ScreenProps* mon) {
     );
 }
 
-void initMonSpace() {
+static void initMonSpace() {
     monSpace.screenCount = 0;
     monSpace.allocated = SCREEN_SPACE_DEFAULT_ALLOCATED;
-    monSpace.screens = calloc(SCREEN_SPACE_DEFAULT_ALLOCATED, sizeof(struct ScreenProps));
+    monSpace.screens = calloc(
+            SCREEN_SPACE_DEFAULT_ALLOCATED,
+            sizeof(struct ScreenProps)
+    );
 }
 
+static void doCleanup() {
+    for (int i = 0; i < monSpace.screenCount; ++i) {
+        struct ScreenProps *screenProps = &monSpace.screens[i];
+        if (screenProps->data) {
+            if (screenProps->data->stream) {
+                pw_stream_disconnect(screenProps->data->stream);
+                pw_stream_destroy(screenProps->data->stream);
+                screenProps->data->stream = NULL;
+            }
+            free(screenProps->data);
+            screenProps->data = NULL;
+        }
+    }
 
-void initScreencast() {
-    pwFd = -1;
-    debug_screencast("%s:%i \n", __FUNCTION__, __LINE__);
+    if (pw.pwFd > 0) {
+        close(pw.pwFd);
+        pw.pwFd = -1;
+    }
+
+    portalScreenCastCleanup();
+
+    if (pw.core) {
+        pw_core_disconnect(pw.core);
+        pw.core = NULL;
+    }
+
+    debug_screencast(
+            "⚠⚠⚠ %s:%i STOPPING %p\n",
+            __FUNCTION__, __LINE__,
+            pw.loop
+    );
+
+    if (pw.loop) {
+        pw_thread_loop_stop(pw.loop);
+        pw_thread_loop_destroy(pw.loop);
+        pw.loop = NULL;
+    }
+
+    if (monSpace.screens) {
+        free(monSpace.screens);
+        monSpace.screens = NULL;
+    }
+}
+
+static gboolean initScreencast() {
+    pw_init(NULL, NULL);
+
+    pw.pwFd = -1;
+
     initMonSpace();
-    initXdgDesktopPortal();
-    pwFd = getPipewireFd();
+
+    if (!initXdgDesktopPortal()) {
+        doCleanup();
+        return FALSE;
+    }
+    if ((pw.pwFd = getPipewireFd()) < 0) {
+        doCleanup();
+        return FALSE;
+    }
+    return TRUE;
 }
 
 static inline void convertBGRxToRGBA(int* in) {
@@ -125,14 +172,18 @@ static inline void convertBGRxToRGBA(int* in) {
 
 static gchar * cropTo(
         struct spa_data data,
-        struct spa_video_info info,
-        guint32 x, //TODO int?
+        struct spa_video_info_raw raw,
+        guint32 x,
         guint32 y,
         guint32 width,
         guint32 height
 ) {
-    debug_screencast("%s:%i ______ stride %i %i\n", __FUNCTION__, __LINE__, data.chunk->stride, data.chunk->stride / 4);
-    int srcW = info.info.raw.size.width;
+    debug_screencast("%s:%i ______ stride %i %i\n",
+                     __FUNCTION__, __LINE__,
+                     data.chunk->stride,
+                     data.chunk->stride / 4
+                     );
+    int srcW = raw.size.width;
     if (data.chunk->stride / 4 != srcW) {
         fprintf(stderr, "%s:%i Unexpected stride / 4: %i srcW: %i\n",
                 __FUNCTION__, __LINE__, data.chunk->stride / 4, srcW);
@@ -155,164 +206,183 @@ static gchar * cropTo(
     return (gchar*) outData;
 }
 
-static void on_param_changed(
+static void onStreamParamChanged(
         void *userdata,
         uint32_t id,
         const struct spa_pod *param
 ) {
-    struct data_pw *data = userdata;
+    struct PwStreamData *data = userdata;
+    uint32_t mediaType;
+    uint32_t mediaSubtype;
+
     debug_screencast(
-            "%s:%i ===================================== %i\n",
-            __FUNCTION__, __LINE__, id
+            "%s:%i monId#%i ===================================== id %i\n",
+            __FUNCTION__, __LINE__, data->screenProps->id, id
     );
-    if (param == NULL || id != SPA_PARAM_Format)
+
+    if (param == NULL || id != SPA_PARAM_Format) {
         return;
+    }
 
     if (spa_format_parse(param,
-                         &data->format.media_type,
-                         &data->format.media_subtype) < 0)
+                         &mediaType,
+                         &mediaSubtype) < 0) {
         return;
+    }
 
-    if (data->format.media_type != SPA_MEDIA_TYPE_video ||
-        data->format.media_subtype != SPA_MEDIA_SUBTYPE_raw)
+    if (mediaType != SPA_MEDIA_TYPE_video ||
+        mediaSubtype != SPA_MEDIA_SUBTYPE_raw) {
         return;
+    }
 
-    if (spa_format_video_raw_parse(param, &data->format.info.raw) < 0)
+    if (spa_format_video_raw_parse(param, &data->rawFormat) < 0) {
         return;
+    }
 
-    debug_screencast("got video format:\n");
-    debug_screencast("  format: %d (%s)\n", data->format.info.raw.format,
-                     spa_debug_type_find_name(spa_type_video_format,
-                                    data->format.info.raw.format));
-    debug_screencast("  size: %dx%d\n", data->format.info.raw.size.width,
-                     data->format.info.raw.size.height);
-    debug_screencast("  framerate: %d/%d\n", data->format.info.raw.framerate.num,
-                     data->format.info.raw.framerate.denom);
+    debug_screencast("video format:\n");
+    debug_screencast("  format: %d (%s)\n",
+                     data->rawFormat.format,
+                     spa_debug_type_find_name(
+                             spa_type_video_format,
+                             data->rawFormat.format
+                     ));
+    debug_screencast("  size: %dx%d\n",
+                     data->rawFormat.size.width,
+                     data->rawFormat.size.height);
+    debug_screencast("  framerate: %d/%d\n",
+                     data->rawFormat.framerate.num,
+                     data->rawFormat.framerate.denom);
+
+    debug_screencast(
+            "⚠⚠⚠ %s:%i monId#%i hasFormat\n",
+            __FUNCTION__, __LINE__, data->screenProps->id
+    );
+
+    data->hasFormat = true;
+    pw_thread_loop_signal(pw.loop, TRUE);
 }
 
-static void on_process(void *userdata) {
-    struct data_pw *data = userdata;
+static void onStreamProcess(void *userdata) {
+    struct PwStreamData *data = userdata;
+
+    debug_screencast(
+            "⚠⚠⚠ %s:%i monId#%i hasFormat %i "
+            "captureDataReady %i shouldCapture %i\n",
+            __FUNCTION__, __LINE__,
+            data->screenProps->id,
+            data->hasFormat,
+            data->screenProps->captureDataReady,
+            data->screenProps->shouldCapture
+    );
+    if (
+            !data->hasFormat
+            || !data->screenProps->shouldCapture
+            || data->screenProps->captureDataReady
+    ) {
+        return;
+    }
+
     struct pw_buffer *b;
     struct spa_buffer *buf;
 
     struct ScreenProps* props = data->screenProps;
-    debug_screencast("%s:%i screenProps %p\n", __FUNCTION__, __LINE__, props);
-    printScreen(props);
-    GdkRectangle *capture = &props->captureArea;
-    debug_screencast("%s:%i shortcut saved %i shouldCapture %i id %i %i %i %i %i\n", __FUNCTION__, __LINE__,
-                     data->saved, data->screenProps->shouldCapture, data->screenProps->id,
-                     capture->x, capture->y,
-                     capture->width, capture->height);
-    if (data->saved || !data->screenProps->shouldCapture) {
-        return;
-    }
+    debug_screencast("%s:%i monId#%i screenProps %p\n",
+                     __FUNCTION__, __LINE__,
+                     data->screenProps->id,
+                     props);
+    debug_screen(props);
+    GdkRectangle captureArea = props->captureArea;
 
     if ((b = pw_stream_dequeue_buffer(data->stream)) == NULL) {
-        pw_log_warn("out of buffers: %m");
+        debug_screencast(
+                "⚠⚠⚠ %s:%i out of buffers\n",
+                __FUNCTION__, __LINE__
+        );
         return;
     }
 
     //TODO buf->n_datas  check?
     buf = b->buffer;
     struct spa_data buffer = buf->datas[0];
-    if (buf->datas[0].data == NULL)
+    if (buf->datas[0].data == NULL) {
         return;
-
-    debug_screencast("got a frame of size %d/%lu of %d st %d fl %d FD %li SAVED %i %i\n",
-                     buf->datas[0].chunk->size,
-                     b->size,
-                     buffer.chunk->offset, //TODO consider offset
-           buffer.chunk->stride,
-                     buffer.chunk->flags,
-                     buffer.fd,
-                     data->saved,
-                     data->screenProps->id
-    );
-
-
-    if (!data->saved) {
-        //TODO format check BGRx? other?
-        GdkRectangle capture = data->screenProps->captureArea;
-
-        data->screenProps->captureData = cropTo(
-                buffer,
-                data->format,
-                capture.x, capture.y,
-                capture.width, capture.height
-        );
-
-        debug_screencast(
-                "%s:%i data->screenProps %p\n",
-                __FUNCTION__, __LINE__, data->screenProps
-        );
-
-
-        debug_screencast("%s:%i data ready\n", __FUNCTION__, __LINE__);
-        sem_post(&data->screenProps->captureDataReady);
-
-        data->saved = TRUE;
-        debug_screencast("%s:%i Got image\n", __FUNCTION__, __LINE__);
     }
 
+    debug_screencast(
+            "monId#%i got a frame of size %d/%lu offset %d stride %d "
+            "flags %d FD %li captureDataReady %i\n",
+            data->screenProps->id,
+            buf->datas[0].chunk->size,
+            b->size,
+            buffer.chunk->offset, //TODO consider offset
+            buffer.chunk->stride,
+            buffer.chunk->flags,
+            buffer.fd,
+            data->screenProps->captureDataReady
+    );
+
+    //TODO format check BGRx? other?
+
+    data->screenProps->captureData = cropTo(
+            buffer,
+            data->rawFormat,
+            captureArea.x, captureArea.y,
+            captureArea.width, captureArea.height
+    );
+
+    debug_screencast(
+            "%s:%i monId#%i data->screenProps %p\n",
+            __FUNCTION__, __LINE__, data->screenProps->id, data->screenProps
+    );
+
+    data->screenProps->captureDataReady = TRUE;
+
+    debug_screencast(
+            "%s:%i monId#%i data ready\n",
+            __FUNCTION__, __LINE__,
+            data->screenProps->id
+    );
     pw_stream_queue_buffer(data->stream, b);
-    debug_screencast("⚠⚠⚠ %s:%i disabling stream %p\n", __FUNCTION__, __LINE__, data->stream);
-    pw_stream_set_active(data->stream, false);
 }
 
-static void on_state_changed(
+static void onStreamStateChanged(
         void *userdata,
         enum pw_stream_state old,
         enum pw_stream_state state,
         const char *error
 ) {
-    struct data_pw *data = userdata;
+    struct PwStreamData *data = userdata;
     debug_screencast(
-            "%s:%i width %i old %i (%s) new %i (%s) err %s on %p\n",
+            "%s:%i monId#%i width %i old %i (%s) new %i (%s) err |%s|\n",
             __FUNCTION__, __LINE__,
+            data->screenProps->id,
             data->screenProps->bounds.width,
             old, pw_stream_state_as_string(old),
             state, pw_stream_state_as_string(state),
-            error, getTid()
+            error
     );
 }
 
-static const struct pw_stream_events stream_events = {
+static const struct pw_stream_events streamEvents = {
         PW_VERSION_STREAM_EVENTS,
-        .param_changed = on_param_changed,
-        .process = on_process,
-        .state_changed = on_state_changed,
+        .param_changed = onStreamParamChanged,
+        .process = onStreamProcess,
+        .state_changed = onStreamStateChanged,
 };
 
-static struct pw_main_loop *theLoop;;
 
-void connectStream(struct pw_main_loop *loop, int index) {
+static bool startStream(
+        struct pw_stream *stream,
+        uint32_t node
+) {
+    char buffer[1024];
+    struct spa_pod_builder builder =
+            SPA_POD_BUILDER_INIT(buffer, sizeof(buffer));
+    const struct spa_pod *param;
 
-    //TODO realloc? leak?
-    //TODO currently freed in on_state_changed?
-    struct data_pw *data = (struct data_pw*) malloc(sizeof (struct data_pw));
-    memset(data, 0, sizeof (struct data_pw));
 
-    uint8_t buffer[1024];
-    struct spa_pod_builder b = SPA_POD_BUILDER_INIT(buffer, sizeof(buffer));
-    const struct spa_pod *params[1];
-
-    data->loop = loop;
-
-    data->stream = pw_stream_new_simple(
-            pw_main_loop_get_loop(data->loop),
-            "AWT-video-capture",
-            pw_properties_new(
-                    PW_KEY_MEDIA_TYPE, "Video",
-                    PW_KEY_MEDIA_CATEGORY, "Capture",
-                    PW_KEY_MEDIA_ROLE, "Screen",
-                    NULL),
-            &stream_events,
-            data);
-
-    debug_screencast("%s:%i /// stream %p\n", __FUNCTION__, __LINE__, data->stream);
-
-    params[0] = spa_pod_builder_add_object(
-            &b,
+    param = spa_pod_builder_add_object(
+            &builder,
             SPA_TYPE_OBJECT_Format,
             SPA_PARAM_EnumFormat,
             SPA_FORMAT_mediaType,
@@ -321,14 +391,12 @@ void connectStream(struct pw_main_loop *loop, int index) {
             SPA_POD_Id(SPA_MEDIA_SUBTYPE_raw),
             SPA_FORMAT_VIDEO_format,
             SPA_POD_CHOICE_ENUM_Id(
-                    7,
+                    5,
                     SPA_VIDEO_FORMAT_RGB,
                     SPA_VIDEO_FORMAT_RGB,
                     SPA_VIDEO_FORMAT_RGBA,
                     SPA_VIDEO_FORMAT_RGBx,
-                    SPA_VIDEO_FORMAT_BGRx,
-                    SPA_VIDEO_FORMAT_YUY2,
-                    SPA_VIDEO_FORMAT_I420
+                    SPA_VIDEO_FORMAT_BGRx
             ),
             SPA_FORMAT_VIDEO_size,
             SPA_POD_CHOICE_RANGE_Rectangle(
@@ -344,76 +412,291 @@ void connectStream(struct pw_main_loop *loop, int index) {
             )
     );
 
-    data->screenProps = &monSpace.screens[index];
-
-    debug_screencast("%s:%i #### screenProps %p\n", __FUNCTION__, __LINE__, &data->screenProps);
-    printScreen(data->screenProps);
-
-    monSpace.screens[index].data = data;
-
-    pw_stream_connect(
-            data->stream,
-            PW_DIRECTION_INPUT,
-            monSpace.screens[index].id,
-            PW_STREAM_FLAG_AUTOCONNECT
-            | PW_STREAM_FLAG_INACTIVE
-            | PW_STREAM_FLAG_MAP_BUFFERS,
-            params, 1
+    debug_screencast(
+            "⚠⚠⚠ %s:%i Connecting to monId#%i of stream %p\n",
+            __FUNCTION__, __LINE__,  node, stream
     );
+
+    return pw_stream_connect(
+            stream,
+            PW_DIRECTION_INPUT,
+            node,
+            PW_STREAM_FLAG_AUTOCONNECT
+//            | PW_STREAM_FLAG_INACTIVE
+            | PW_STREAM_FLAG_MAP_BUFFERS,
+            &param,
+            1
+    ) >= 0;
 }
 
+/**
+ * @param index of a screen
+ * @return TRUE on success
+ */
+static gboolean connectStream(int index) {
+    debug_screencast(
+            "⚠⚠⚠ %s:%i @@@ using mon %i\n",
+            __FUNCTION__, __LINE__,
+            index
+    );
+    if (index >= monSpace.screenCount) {
+        debug_screencast(
+                "⚠⚠⚠ %s:%i Wrong index for screen\n",
+                __FUNCTION__, __LINE__
+        );
+        return FALSE;
+    }
 
-void findScreens(GdkRectangle props) {
-    debug_screencast("%s:%i searching x %i y %i w %i h %i\n", __FUNCTION__, __LINE__,
-                     props.x, props.y,
-                     props.width, props.height
+    struct PwStreamData *data = monSpace.screens[index].data;
+
+    data->screenProps = &monSpace.screens[index];
+
+    data->hasFormat = FALSE;
+
+
+    data->stream = pw_stream_new(
+            pw.core,
+            "AWT Screen Stream",
+            pw_properties_new(
+                    PW_KEY_MEDIA_TYPE, "Video",
+                    PW_KEY_MEDIA_CATEGORY, "Capture",
+                    PW_KEY_MEDIA_ROLE, "Screen",
+                    NULL
+            )
     );
 
-    for (int i = 0; i < monSpace.screenCount; ++i) {
-        struct ScreenProps * mon = &monSpace.screens[i];
+    if (!data->stream) {
+        debug_screencast(
+                "⚠⚠⚠ %s:%i monId#%i Could not create a pipewire stream\n",
+                __FUNCTION__, __LINE__, data->screenProps->id
+        );
+        pw_thread_loop_unlock(pw.loop);
+        return FALSE;
+    }
 
+    pw_stream_add_listener(
+            data->stream,
+            &data->streamListener,
+            &streamEvents,
+            data
+    );
 
-        //TODO optimize
-        int x1 = MAX(props.x, mon->bounds.x);
-        int y1 = MAX(props.y, mon->bounds.y);
+    debug_screencast(
+            "%s:%i #### screenProps %p\n",
+            __FUNCTION__, __LINE__,
+            &data->screenProps
+    );
+    debug_screen(data->screenProps);
 
-        int x2 = MIN(props.x + props.width,  mon->bounds.x + mon->bounds.width);
-        int y2 = MIN(props.y + props.height, mon->bounds.y + mon->bounds.height);
+    if (!startStream(data->stream, monSpace.screens[index].id)){
+        debug_screencast(
+                "⚠⚠⚠ %s:%i monId#%i Could not start a pipewire stream\n",
+                __FUNCTION__, __LINE__, data->screenProps->id
+        );
+        pw_thread_loop_unlock(pw.loop);
+        return FALSE;
+    }
 
-        mon->shouldCapture = x2 > x1 && y2 > y1;
+    while (!data->hasFormat) {
+        pw_thread_loop_wait(pw.loop);
+    }
 
-        debug_screencast("%s:%i checking id %i x %i y %i w %i h %i shouldCapture %i\n", __FUNCTION__, __LINE__,
-                         mon->id,
-                         mon->bounds.x, mon->bounds.y,
-                         mon->bounds.width, mon->bounds.height,
-                         mon->shouldCapture
+    debug_screencast(
+            "⚠⚠⚠ %s:%i monId#%i Frame size       : %dx%d\n",
+            __FUNCTION__, __LINE__,
+            data->screenProps->id,
+            data->rawFormat.size.width, data->rawFormat.size.height
+    );
+
+    pw_thread_loop_accept(pw.loop);
+
+    return TRUE;
+}
+
+static gboolean checkScreen(int index, GdkRectangle requestedArea) {
+    if (index >= monSpace.screenCount) {
+        debug_screencast(
+                "⚠⚠⚠ %s:%i Wrong index for screen\n",
+                __FUNCTION__, __LINE__
+        );
+        return FALSE;
+    }
+
+    struct ScreenProps * mon = &monSpace.screens[index];
+
+    int x1 = MAX(requestedArea.x, mon->bounds.x);
+    int y1 = MAX(requestedArea.y, mon->bounds.y);
+
+    int x2 = MIN(
+            requestedArea.x + requestedArea.width,
+            mon->bounds.x + mon->bounds.width
+    );
+    int y2 = MIN(
+            requestedArea.y + requestedArea.height,
+            mon->bounds.y + mon->bounds.height
+    );
+
+    mon->shouldCapture = x2 > x1 && y2 > y1;
+
+    debug_screencast(
+            "%s:%i checking id %i x %i y %i w %i h %i shouldCapture %i\n",
+            __FUNCTION__, __LINE__,
+            mon->id,
+            mon->bounds.x, mon->bounds.y,
+            mon->bounds.width, mon->bounds.height,
+            mon->shouldCapture
+    );
+
+    if (mon->shouldCapture) {  //intersects
+        //in screen coords:
+        GdkRectangle * captureArea = &(mon->captureArea);
+
+        captureArea->x = x1 - mon->bounds.x;
+        captureArea->y = y1 - mon->bounds.y;
+        captureArea->width = x2 - x1;
+        captureArea->height = y2 - y1;
+
+        mon->captureArea.x = x1 - mon->bounds.x;
+
+        debug_screencast(
+                "\t\tintersection %i %i %i %i should capture %i\n",
+                captureArea->x, captureArea->y,
+                captureArea->width, captureArea->height,
+                mon->shouldCapture
         );
 
-        if (mon->shouldCapture) {  //intersects
-            mon->data->saved = false;
-            //in screen coords:
-            GdkRectangle * captureArea = &(mon->captureArea);
 
-            captureArea->x = x1 - mon->bounds.x;
-            captureArea->y = y1 - mon->bounds.y;
-            captureArea->width = x2 - x1;
-            captureArea->height = y2 - y1;
-
-            mon->captureArea.x = x1 - mon->bounds.x;
-
-            debug_screencast("\t\tintersection %i %i %i %i should capture %i\n",
-                             captureArea->x, captureArea->y,
-                             captureArea->width, captureArea->height,
-                             mon->shouldCapture);
-
-
-            printScreen(mon);
-        } else {
-            debug_screencast("%s:%i OUCH no intersection\n", __FUNCTION__, __LINE__);
-        }
+        debug_screen(mon);
+        return TRUE;
+    } else {
+        debug_screencast("%s:%i no intersection\n", __FUNCTION__, __LINE__);
+        return FALSE;
     }
 }
 
+
+static void onCoreError(
+        void *data,
+        uint32_t id,
+        int seq,
+        int res,
+        const char *message
+) {
+    debug_screencast(
+            "⚠⚠⚠ %s:%i pipewire error: id %u, seq: %d, res: %d (%s): %s\n",
+            __FUNCTION__, __LINE__,
+            id, seq, res, strerror(res), message
+    );
+}
+
+static const struct pw_core_events coreEvents = {
+        PW_VERSION_CORE_EVENTS,
+        .error = onCoreError,
+};
+
+/**
+ *
+ * @param requestedArea requested screenshot area
+ * @return TRUE on success
+ */
+static gboolean doLoop(GdkRectangle requestedArea) {
+    pw.loop = pw_thread_loop_new("AWT Pipewire Thread", NULL);
+
+    if (!pw.loop) {
+        debug_screencast(
+                "⚠⚠⚠ %s:%i Could not create a loop\n",
+                __FUNCTION__, __LINE__
+        );
+        doCleanup();
+        return FALSE;
+    }
+
+    pw.context = pw_context_new(
+            pw_thread_loop_get_loop(pw.loop),
+            NULL,
+            0
+    );
+
+    if (!pw.context) {
+        debug_screencast(
+                "⚠⚠⚠ %s:%i Could not create a pipewire context\n",
+                __FUNCTION__, __LINE__
+        );
+        doCleanup();
+        return FALSE;
+    }
+
+    if (pw_thread_loop_start(pw.loop) != 0) {
+        debug_screencast(
+                "⚠⚠⚠ %s:%i Could not start pipewire thread loop\n",
+                __FUNCTION__, __LINE__
+        );
+        doCleanup();
+        return FALSE;
+    }
+
+    pw_thread_loop_lock(pw.loop);
+
+    pw.core = pw_context_connect_fd(
+            pw.context,
+            pw.pwFd,
+            NULL,
+            0
+    );
+
+    if (!pw.core) {
+        debug_screencast(
+                "⚠⚠⚠ %s:%i Could not create pipewire core\n",
+                __FUNCTION__, __LINE__
+        );
+        pw_thread_loop_unlock(pw.loop);
+        doCleanup();
+        return FALSE;
+    }
+
+    pw_core_add_listener(pw.core, &pw.coreListener, &coreEvents, NULL);
+
+    for (int i = 0; i < monSpace.screenCount; ++i) {
+        debug_screencast(
+                "⚠⚠⚠ %s:%i @@@ adding mon %i\n",
+                __FUNCTION__, __LINE__,
+                i
+        );
+        struct PwStreamData *data =
+                (struct PwStreamData*) malloc(sizeof (struct PwStreamData));
+
+        memset(data, 0, sizeof (struct PwStreamData));
+        monSpace.screens[i].data = data;
+
+        if (checkScreen(i, requestedArea)) {
+            if (!connectStream(i)){
+                doCleanup();
+                return FALSE;
+            }
+        }
+        debug_screencast(
+                "⚠⚠⚠ %s:%i @@@ mon processed %i\n",
+                __FUNCTION__, __LINE__,
+                i
+        );
+    }
+
+    pw_thread_loop_unlock(pw.loop);
+
+    return TRUE;
+}
+
+static gboolean isAllDataReady() {
+    for (int i = 0; i < monSpace.screenCount; ++i) {
+        if (!monSpace.screens[i].shouldCapture) {
+            continue;
+        }
+        if (!monSpace.screens[i].captureDataReady ) {
+            return FALSE;
+        }
+    }
+    return TRUE;
+}
 
 
 /*
@@ -428,189 +711,91 @@ JNIEXPORT void JNICALL Java_sun_awt_screencast_ScreencastHelper_getRGBPixelsImpl
         jint jy,
         jint jwidth,
         jint jheight,
-        jintArray pixelArray
+        jintArray pixelArray,
+        jboolean screencastDebug
 ) {
+    DEBUG_SCREENCAST_ENABLE = screencastDebug;
+
+    GdkRectangle requestedArea = { jx, jy, jwidth, jheight};
+
     debug_screencast(
             "%s:%i taking screenshot at x: %5i y %5i w %5i h %5i\n",
             __FUNCTION__, __LINE__, jx, jy, jwidth, jheight
     );
 
-    GdkRectangle requestedArea = { jx, jy, jwidth, jheight};
-    findScreens(requestedArea);
+    initRestoreToken();
 
-    for (int i = 0; i < monSpace.screenCount; ++i) {
-        struct ScreenProps * props = &monSpace.screens[i];
+    initScreencast();
 
-        if (props->shouldCapture) {
-            debug_screencast("%s:%i @@@ resuming mon %i stream %p \n", __FUNCTION__, __LINE__, i, props->data->stream );
-            sem_init(&props->captureDataReady, 0, 0);
-            int ret = pw_stream_set_active(props->data->stream, true);
-            debug_screencast("⚠⚠⚠ pw_stream_set_active %i\n", ret);
+    if (doLoop(requestedArea)) {
+        while (!isAllDataReady()) {
+            pw_thread_loop_wait(pw.loop);
         }
-    }
-
-    debug_screencast("%s:%i data ready$$\n", __FUNCTION__, __LINE__);
-    AWT_LOCK();
-    for (int i = 0; i < monSpace.screenCount; ++i) {
-        struct ScreenProps * screenProps = &monSpace.screens[i];
-
-        if (screenProps->shouldCapture) {
-            debug_screencast("%s:%i @@@ getting data mon %i stream %p \n", __FUNCTION__, __LINE__, i, screenProps->data->stream );
-
-            debug_screencast("%s:%i waiting for data$$ on %p\n", __FUNCTION__, __LINE__, getTid());
-            sem_wait(&screenProps->captureDataReady);
-////TODO hangs sometimes?
-//            {
-//                int s;
-//                struct timespec ts;
-//
-//                if (clock_gettime(CLOCK_REALTIME, &ts) == -1) {
-//                    debug_screencast("⚠⚠⚠ clock_gettime failed\n");
-//                }
-//
-//                ts.tv_sec += 5;
-//
-//                while (
-//                    (s = sem_timedwait(&screenProps->captureDataReady, &ts)) == -1
-//                    && errno == EINTR
-//                ) {
-//                    continue;
-//                }
-//
-//                if (s == -1) {
-//                    debug_screencast("⚠⚠⚠\n");
-//                    debug_screencast("⚠⚠⚠\n");
-//                    debug_screencast("⚠⚠⚠ data time out\n");
-//                    debug_screencast("⚠⚠⚠\n");
-//                    debug_screencast("⚠⚠⚠\n");
-//                    if (errno == ETIMEDOUT) {
-//                        printf("sem_timedwait() timed out\n");
-//                    } else {
-//                        perror("sem_timedwait");
-//                    }
-//
-//                }
-//            }
-            sem_destroy(&screenProps->captureDataReady);
-
-            GdkRectangle captureArea  = screenProps->captureArea;
-
-            printRect(requestedArea, "requestedArea");
-            printRect(screenProps->bounds, "screen bounds");
-            printRect(captureArea, "in-screen coords capture area");
-
-            debug_screencast("%s:%i screenProps->captureData %p\n", __FUNCTION__, __LINE__, screenProps->captureData);
-
-
-            for (int y = 0; y < captureArea.height; y++) {
-                jsize preY = (requestedArea.y > screenProps->bounds.y)
-                        ? 0
-                        : screenProps->bounds.y - requestedArea.y;
-                jsize preX = (requestedArea.x > screenProps->bounds.x)
-                        ? 0
-                        : screenProps->bounds.x - requestedArea.x;
-                jsize start = jwidth * (preY + y) + preX;
-
-                jsize len = captureArea.width;
-
-
-                (*env)->SetIntArrayRegion(
-                        env, pixelArray,
-                        start, len,
-                        ((jint *) screenProps->captureData) + (captureArea.width * y)
-                );
-            }
-
-            free(screenProps->captureData);
-            screenProps->captureData = NULL;
-
-            screenProps->shouldCapture = false;
-
-            pw_stream_set_active(screenProps->data->stream, false);
-            pw_stream_disconnect(screenProps->data->stream);
-        }
-    }
-
-    AWT_UNLOCK();
-}
-
-/*
- * Class:     sun_awt_screencast_ScreencastHelper
- * Method:    initScreencast
- * Signature: (Z)V
- */
-JNIEXPORT void JNICALL Java_sun_awt_screencast_ScreencastHelper_initScreencast(
-        JNIEnv * env, jclass class,
-        jboolean screencastDebug
-) {
-
-    DEBUG_SCREENCAST_ENABLE = screencastDebug;
-
-    debug_screencast("⚠⚠⚠ %s:%i init_complete %i\n", __FUNCTION__, __LINE__, init_complete);
-    if (!init_complete) {
-        initRestoreToken();
 
         debug_screencast(
-            "%s:%i using restore token location: %s\n",
-            __FUNCTION__, __LINE__, restoreTokenPath->str
+            "\n%s:%i data ready$$\n",
+            __FUNCTION__, __LINE__
         );
 
-        initScreencast();
-
-        debug_screencast("%s:%i %i\n", __FUNCTION__, __LINE__, pwFd);
-
-        pw_init(NULL, NULL);
-        init_complete = TRUE;
-
-        theLoop = pw_main_loop_new(NULL);
-
         for (int i = 0; i < monSpace.screenCount; ++i) {
-            debug_screencast("%s:%i @@@ adding mon %i\n", __FUNCTION__, __LINE__, i );
-            connectStream(theLoop, i);
+            struct ScreenProps * screenProps = &monSpace.screens[i];
+
+            if (screenProps->shouldCapture) {
+                debug_screencast(
+                        "%s:%i @@@ getting data mon %i\n",
+                        __FUNCTION__, __LINE__, i
+                );
+
+                GdkRectangle captureArea  = screenProps->captureArea;
+
+                debug_rectangle(
+                    requestedArea,
+                    "requestedArea"
+                );
+                debug_rectangle(
+                    screenProps->bounds,
+                    "screen bounds"
+                );
+                debug_rectangle(
+                    captureArea,
+                    "in-screen coords capture area"
+                );
+
+                debug_screencast(
+                    "%s:%i screenProps->captureData %p\n",
+                    __FUNCTION__, __LINE__,
+                    screenProps->captureData
+                );
+
+
+                for (int y = 0; y < captureArea.height; y++) {
+                    jsize preY = (requestedArea.y > screenProps->bounds.y)
+                            ? 0
+                            : screenProps->bounds.y - requestedArea.y;
+                    jsize preX = (requestedArea.x > screenProps->bounds.x)
+                            ? 0
+                            : screenProps->bounds.x - requestedArea.x;
+                    jsize start = jwidth * (preY + y) + preX;
+
+                    jsize len = captureArea.width;
+
+
+                    (*env)->SetIntArrayRegion(
+                            env, pixelArray,
+                            start, len,
+                            ((jint *) screenProps->captureData)
+                                + (captureArea.width * y)
+                    );
+                }
+
+                free(screenProps->captureData);
+                screenProps->captureData = NULL;
+                screenProps->shouldCapture = FALSE;
+
+                pw_stream_set_active(screenProps->data->stream, FALSE);
+                pw_stream_disconnect(screenProps->data->stream);
+            }
         }
-    }
-
-    debug_screencast("%s:%i new loop %p\n", __FUNCTION__, __LINE__, theLoop);
-}
-
-
-/*
- * Class:     sun_awt_screencast_ScreencastHelper
- * Method:    start
- * Signature: ()V
- */
-JNIEXPORT void JNICALL Java_sun_awt_screencast_ScreencastHelper_start(
-        JNIEnv * env,
-        jclass class
-) {
-
-    debug_screencast("⚠⚠⚠ %s:%i pw_main_loop_run %p\n", __FUNCTION__, __LINE__, theLoop);
-    pw_main_loop_run(theLoop);
-    debug_screencast("⚠⚠⚠ %s:%i EXITED pw_main_loop_run\n", __FUNCTION__, __LINE__);
-}
-
-/*
- * Class:     sun_awt_screencast_ScreencastHelper
- * Method:    stop
- * Signature: ()V
- */
-JNIEXPORT void JNICALL Java_sun_awt_screencast_ScreencastHelper_stop(
-        JNIEnv * env,   
-        jclass class
-) {
-    debug_screencast("⚠⚠⚠ %s:%i STOPPING %p\n", __FUNCTION__, __LINE__, theLoop);
-    if (theLoop) {
-        for (int i = 0; i < monSpace.screenCount; ++i) {
-            struct ScreenProps *screenProps = &monSpace.screens[i];
-            pw_stream_destroy(screenProps->data->stream);
-        }
-        close(pwFd);
-        pwFd = -1;
-
-        portalScreenCastCleanup();
-
-        pw_main_loop_quit(theLoop);
-        theLoop = NULL;
-        init_complete = FALSE;
+        doCleanup();
     }
 }

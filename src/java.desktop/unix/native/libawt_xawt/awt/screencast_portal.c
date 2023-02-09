@@ -35,8 +35,7 @@
 
 extern struct ScreenSpace monSpace;
 
-struct XdgDesktopPortalApi *portal;
-char *screenCastSessionHandle;
+struct XdgDesktopPortalApi *portal = NULL;
 
 GString *tmp;
 GString *tokenStr;
@@ -45,7 +44,12 @@ GString *sessionTokenStr;
 GString *restoreTokenPath = NULL;
 GString *restoreToken = NULL;
 
+static volatile int initRestoreTokenComplete = FALSE;
+
 void initRestoreToken() {
+    if (initRestoreTokenComplete) {
+        return;
+    }
     const char *homedir;
 
     if ((homedir = getenv("HOME")) == NULL) {
@@ -58,6 +62,7 @@ void initRestoreToken() {
     // ~/.screencastToken
     gtk->g_string_append(restoreTokenPath, "/.screencastToken");
     debug_screencast("%s:%i Restore token path: %s\n", __FUNCTION__, __LINE__, restoreTokenPath->str);
+    initRestoreTokenComplete = TRUE;
 }
 
 
@@ -196,7 +201,7 @@ gboolean rebuildMonData(GVariantIter *iterStreams) {
         }
 
         debug_screencast("%s:%i -----------------------\n", __FUNCTION__, __LINE__);
-        printScreen(mon);
+        debug_screen(mon);
         debug_screencast("%s:%i #---------------------#\n", __FUNCTION__, __LINE__);
         
         gtk->g_variant_unref(prop);
@@ -230,12 +235,15 @@ gboolean rebuildMonData(GVariantIter *iterStreams) {
 //    }
 //}
 
-void initXdgDesktopPortal() {
+/**
+ * @return TRUE on success
+ */
+gboolean initXdgDesktopPortal() {
     portal = calloc(1, sizeof(*portal));
 
     if (!portal) {
         fprintf(stderr, "⚠⚠⚠ %s:%i Unable to allocate memory\n", __FUNCTION__, __LINE__);
-        return;
+        return FALSE;
     }
 
     GError* err = NULL;
@@ -244,13 +252,13 @@ void initXdgDesktopPortal() {
 
     if (err) {
         errHandle(err, __LINE__);
-        return;
+        return FALSE;
     }
 
     const gchar * name = gtk->g_dbus_connection_get_unique_name(portal->connection);
     if (!name) {
         fprintf(stderr, "%s:%i Failed to get unique connection name\n", __FUNCTION__, __LINE__);
-        return;
+        return FALSE;
     }
 
     debug_screencast("%s:%i unique connection name %s\n", __FUNCTION__, __LINE__, name);
@@ -263,7 +271,6 @@ void initXdgDesktopPortal() {
     portal->senderName = nameStr->str;
 
     gtk->g_string_free(nameStr, FALSE);
-
 
     debug_screencast("%s:%i portal->senderName %s\n", __FUNCTION__, __LINE__, portal->senderName);
 
@@ -284,8 +291,10 @@ void initXdgDesktopPortal() {
                 __FUNCTION__, __LINE__, err->message
         );
         errHandle(err, __LINE__);
-        return;
+        return FALSE;
     }
+
+    return TRUE;
 }
 
 static void updateRequestPath(
@@ -410,7 +419,7 @@ gboolean portalScreenCastCreateSession() {
 
     struct DBusCallbackHelper helper = {
             .id = 0,
-            .data = &screenCastSessionHandle
+            .data = &portal->screenCastSessionHandle
     };
 
     updateRequestPath(
@@ -419,7 +428,7 @@ gboolean portalScreenCastCreateSession() {
     );
     updateSessionToken(&sessionToken);
 
-    screenCastSessionHandle = NULL;
+    portal->screenCastSessionHandle = NULL;
 
     registerScreenCastCallback(
             requestPath,
@@ -468,7 +477,7 @@ gboolean portalScreenCastCreateSession() {
 
         debug_screencast(
                 "%s:%i ⚠⚠⚠ session_handle %s\n",
-                __FUNCTION__, __LINE__, screenCastSessionHandle
+                __FUNCTION__, __LINE__, portal->screenCastSessionHandle
         );
     }
 
@@ -479,7 +488,7 @@ gboolean portalScreenCastCreateSession() {
     free(requestPath);
     free(requestToken);
 
-    return screenCastSessionHandle != NULL;
+    return portal->screenCastSessionHandle != NULL;
 }
 
 static void callbackScreenCastSelectSources(
@@ -580,7 +589,7 @@ gboolean portalScreenCastSelectSources() {
     GVariant *response = gtk->g_dbus_proxy_call_sync(
             portal->screenCastProxy,
             "SelectSources",
-            gtk->g_variant_new("(oa{sv})", screenCastSessionHandle, &builder),
+            gtk->g_variant_new("(oa{sv})", portal->screenCastSessionHandle, &builder),
             G_DBUS_CALL_FLAGS_NONE,
             -1,
             NULL,
@@ -709,7 +718,7 @@ gboolean portalScreenCastStart() {
     GVariant *response = gtk->g_dbus_proxy_call_sync(
             portal->screenCastProxy,
             "Start",
-            gtk->g_variant_new("(osa{sv})", screenCastSessionHandle, "", &builder),
+            gtk->g_variant_new("(osa{sv})", portal->screenCastSessionHandle, "", &builder),
             G_DBUS_CALL_FLAGS_NONE,
             -1,
             NULL,
@@ -747,7 +756,7 @@ int portalScreenCastOpenPipewireRemote() {
     GVariant *response = gtk->g_dbus_proxy_call_with_unix_fd_list_sync(
             portal->screenCastProxy,
             "OpenPipeWireRemote",
-            gtk->g_variant_new("(oa{sv})", screenCastSessionHandle, &builder),
+            gtk->g_variant_new("(oa{sv})", portal->screenCastSessionHandle, &builder),
             G_DBUS_CALL_FLAGS_NONE,
             -1,
             NULL,
@@ -757,7 +766,10 @@ int portalScreenCastOpenPipewireRemote() {
     );
 
     if (err) {
-        debug_screencast("Failed to call OpenPipeWireRemote on session: %s\n", err->message);
+        debug_screencast(
+                "Failed to call OpenPipeWireRemote on session: %s\n",
+                err->message
+        );
         errHandle(err, __LINE__);
         return -1;
     }
@@ -796,11 +808,11 @@ int portalScreenCastOpenPipewireRemote() {
 }
 
 void portalScreenCastCleanup() {
-    if (screenCastSessionHandle) {
+    if (portal->screenCastSessionHandle) {
         gtk->g_dbus_connection_call_sync(
                 portal->connection,
                 "org.freedesktop.portal.Desktop",
-                screenCastSessionHandle,
+                portal->screenCastSessionHandle,
                 "org.freedesktop.portal.Session",
                 "Close",
                 NULL,
@@ -811,10 +823,9 @@ void portalScreenCastCleanup() {
                 NULL
         );
 
-        gtk->g_free(screenCastSessionHandle);
-        screenCastSessionHandle = NULL;
+        gtk->g_free(portal->screenCastSessionHandle);
+        portal->screenCastSessionHandle = NULL;
     }
-
 
     // TODO reuse connection?
     if (!portal) {
@@ -850,7 +861,11 @@ int getPipewireFd() {
         return -1;
     }
 
-    debug_screencast("⚠⚠⚠ %s:%i Got session handle: %s\n", __FUNCTION__, __LINE__, screenCastSessionHandle);
+    debug_screencast(
+            "⚠⚠⚠ %s:%i Got session handle: %s\n",
+            __FUNCTION__, __LINE__,
+            portal->screenCastSessionHandle
+    );
 
     if (!portalScreenCastSelectSources()) {
         debug_screencast("Failed to select source\n");
@@ -864,12 +879,16 @@ int getPipewireFd() {
         return -1;
     }
 
-    debug_screencast("⚠⚠⚠ %s:%i --- portalScreenCastStart\n", __FUNCTION__, __LINE__);
+    debug_screencast(
+            "⚠⚠⚠ %s:%i --- portalScreenCastStart\n",
+            __FUNCTION__, __LINE__
+    );
 
     int pipewireFd = portalScreenCastOpenPipewireRemote();
     if (pipewireFd < 0) {
         debug_screencast("Failed to get pipewire fd\n");
     }
 
+    debug_screencast("%s:%i pwFd %i\n", __FUNCTION__, __LINE__, pipewireFd);
     return pipewireFd;
 }

@@ -116,12 +116,9 @@ final class XRobotPeer implements RobotPeer {
     public int [] getRGBPixels(Rectangle bounds) {
         int[] pixelArray = new int[bounds.width*bounds.height];
         if (useScreencast) {
-            ScreencastHelper.initAndStart();
-            ScreencastHelper.waitForInit();
             ScreencastHelper.getRGBPixelsImpl(
                     bounds.x, bounds.y, bounds.width, bounds.height, pixelArray
             );
-            ScreencastHelper.shutDown();
         } else {
             getRGBPixelsImpl(
                     xgc, bounds.x, bounds.y, bounds.width, bounds.height, pixelArray, useGtk

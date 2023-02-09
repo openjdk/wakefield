@@ -38,7 +38,6 @@
 #include <spa/param/video/format-utils.h>
 #include <spa/debug/types.h>
 #include <spa/param/video/type-info.h>
-#include <semaphore.h>
 
 struct data_pw;
 
@@ -51,10 +50,11 @@ struct ScreenProps {
     GdkRectangle bounds;
 
     GdkRectangle captureArea;
+    struct PwStreamData *data;
+
     gchar *captureData;
-    struct data_pw *data;
-    volatile int shouldCapture;
-    sem_t captureDataReady;
+    volatile gboolean shouldCapture;
+    volatile gboolean captureDataReady;
 };
 
 
@@ -65,16 +65,24 @@ struct ScreenSpace {
     int allocated;
 };
 
-void printScreen(struct ScreenProps *mon);
+void debug_screen(struct ScreenProps *mon);
 
-struct data_pw {
-    struct pw_main_loop *loop;
+struct PwLoopData {
+    struct pw_thread_loop *loop;
+    struct pw_context *context;
+    struct pw_core *core;
+    struct spa_hook coreListener;
+    int pwFd;
+};
+
+struct PwStreamData {
     struct pw_stream *stream;
+    struct spa_hook streamListener;
 
-    struct spa_video_info format;
+    struct spa_video_info_raw rawFormat;
+    struct ScreenProps *screenProps;
 
-    struct ScreenProps* screenProps;
-    int saved;
+    gboolean hasFormat;
 };
 
 #endif //_SCREENCAST_PIPEWIRE_H
