@@ -108,7 +108,11 @@ final class XRobotPeer implements RobotPeer {
     @Override
     public int getRGBPixel(int x, int y) {
         int[] pixelArray = new int[1];
-        getRGBPixelsImpl(xgc, x, y, 1, 1, pixelArray, useGtk);
+        if (useScreencast) {
+            ScreencastHelper.getRGBPixelsImpl(x, y, 1, 1, pixelArray);
+        } else {
+            getRGBPixelsImpl(xgc, x, y, 1, 1, pixelArray, useGtk);
+        }
         return pixelArray[0];
     }
 
