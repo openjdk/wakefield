@@ -47,15 +47,22 @@ final class XRobotPeer implements RobotPeer {
 
     static {
         loadNativeLibraries();
+
         tryGtk = Boolean.parseBoolean(
-                            AccessController.doPrivileged(
-                                    new GetPropertyAction("awt.robot.gtk", "true")
-                            ));
+                AccessController.doPrivileged(
+                        new GetPropertyAction("awt.robot.gtk", "true")
+                ));
+
         useScreencast = Boolean.parseBoolean(
-                            AccessController.doPrivileged(
-                                    new GetPropertyAction("useScreencast", "true")
-                            ));
+                AccessController.doPrivileged(
+                        new GetPropertyAction(
+                                "awt.robot.screencastEnabled",
+                                XToolkit.isOnWayland()
+                                        ? "true"
+                                        : "false"
+                        )));
     }
+
     private static volatile boolean useGtk;
     private final X11GraphicsConfig  xgc;
 
