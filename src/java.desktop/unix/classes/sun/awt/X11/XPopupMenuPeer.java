@@ -125,6 +125,7 @@ public class XPopupMenuPeer extends XMenuWindow implements PopupMenuPeer {
             //near the periphery of the screen, XToolkit
             Rectangle bounds = getWindowBounds(pt, dim);
             reshape(bounds);
+            waylandDismissOnWindowFocusLostAdd();
             xSetVisible(true);
             toFront();
             selectItem(null, false);

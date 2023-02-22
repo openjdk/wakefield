@@ -25,14 +25,13 @@
 package sun.awt.X11;
 
 import java.awt.*;
-import java.awt.peer.*;
 import java.awt.event.*;
 
-import java.awt.image.BufferedImage;
-import java.awt.geom.Point2D;
-
+import java.util.Arrays;
 import java.util.Vector;
 import sun.util.logging.PlatformLogger;
+
+import javax.swing.SwingUtilities;
 
 public class XMenuWindow extends XBaseMenuWindow {
 
@@ -389,6 +388,60 @@ public class XMenuWindow extends XBaseMenuWindow {
         return true;
     }
 
+    // We rely on the X11 input grab mechanism, but for the Wayland session
+    // it only works inside the XWayland server, so mouse clicks outside of it
+    // will not be detected.
+    // (window decorations, pure Wayland applications, desktop, etc.)
+    //
+    // As a workaround, we can dismiss menus when the window loses focus.
+    //
+    // However, there are "blind spots" though, which, when clicked, don't
+    // transfer the focus away and don't dismiss the menu
+    // (e.g. the window's own title or the area in the side dock without
+    // application icons).
+    private static final WindowFocusListener waylandWindowFocusListener;
+
+    static {
+        if (XToolkit.isOnWayland()) {
+            waylandWindowFocusListener = new WindowAdapter() {
+                @Override
+                public void windowLostFocus(WindowEvent e) {
+                    e.getWindow().removeWindowFocusListener(this);
+                    ungrabInput();
+                }
+            };
+        } else {
+            waylandWindowFocusListener = null;
+        }
+    }
+
+    protected void waylandDismissOnWindowFocusLostAdd() {
+        if (waylandWindowFocusListener == null) return;
+
+        Window targetWindow = (target instanceof Window)
+                ? (Window) target
+                : SwingUtilities.getWindowAncestor(target);
+
+
+        if (targetWindow != null
+                && !Arrays.asList(targetWindow.getWindowFocusListeners())
+                .contains(waylandWindowFocusListener)) {
+            targetWindow.addWindowFocusListener(waylandWindowFocusListener);
+        }
+    }
+
+    protected void waylandDismissOnWindowFocusLostRemove() {
+        if (waylandWindowFocusListener == null) return;
+
+        Window targetWindow = (target instanceof Window)
+                ? (Window) target
+                : SwingUtilities.getWindowAncestor(target);
+
+        if (targetWindow != null) {
+            targetWindow.removeWindowFocusListener(waylandWindowFocusListener);
+        }
+    }
+
     /**
      * Init window if it's not inited yet
      * and show it at specified coordinates
@@ -405,6 +458,7 @@ public class XMenuWindow extends XBaseMenuWindow {
         XToolkit.awtLock();
         try {
             reshape(bounds.x, bounds.y, bounds.width, bounds.height);
+            waylandDismissOnWindowFocusLostAdd();
             xSetVisible(true);
             //Fixed 6267182: PIT: Menu is not visible after
             //showing and disposing a file dialog, XToolkit
@@ -421,6 +475,7 @@ public class XMenuWindow extends XBaseMenuWindow {
     void hide() {
         selectItem(null, false);
         xSetVisible(false);
+        waylandDismissOnWindowFocusLostRemove();
     }
 
     /************************************************
