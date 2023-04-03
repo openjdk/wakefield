@@ -50,11 +50,14 @@ abstract class XDecoratedPeer extends XWindowPeer {
     // reparented - indicates that WM has adopted the top-level.
     boolean configure_seen;
     boolean insets_corrected;
+    // Set to true after reconfigureContentWindow is called for the first time.
+    // Before this, content window may not be in sync with insets.
+    private boolean content_reconfigured;
 
     XIconWindow iconWindow;
     volatile WindowDimensions dimensions;
     XContentWindow content;
-    volatile Insets currentInsets;
+    private volatile Insets currentInsets; // Device-space
     XFocusProxyWindow focusProxy;
     static final Map<Class<?>,Insets> lastKnownInsets =
                                    Collections.synchronizedMap(new HashMap<>());
@@ -305,9 +308,6 @@ abstract class XDecoratedPeer extends XWindowPeer {
             insLog.finer("FRAME_EXTENTS: {0}", wm_set_insets);
         }
 
-        if (wm_set_insets != null) {
-            wm_set_insets = copyAndScaleDown(wm_set_insets);
-        }
         return wm_set_insets;
     }
 
@@ -348,7 +348,7 @@ abstract class XDecoratedPeer extends XWindowPeer {
                     // proper channels.
                     wm_set_insets = null;
                     Insets in = getWMSetInsets(XAtom.get(ev.get_atom()));
-                    if (in != null && !in.equals(dimensions.getInsets())) {
+                    if (in != null && !copyAndScaleDown(in).equals(dimensions.getInsets())) {
                         handleCorrectInsets(in);
                     }
                 } else {
@@ -366,7 +366,7 @@ abstract class XDecoratedPeer extends XWindowPeer {
                 if (!isEmbedded() && !isTargetUndecorated()) {
                     lastKnownInsets.put(getClass(), in);
                 }
-                if (!in.equals(dimensions.getInsets())) {
+                if (!copyAndScaleDown(in).equals(dimensions.getInsets())) {
                     if (insets_corrected || isMaximized()) {
                         currentInsets = in;
                         insets_corrected = true;
@@ -444,7 +444,7 @@ abstract class XDecoratedPeer extends XWindowPeer {
                 }
                 // If these insets are equal to our current insets - no actions are necessary
                 Insets dimInsets = dimensions.getInsets();
-                if (correctWM.equals(dimInsets)) {
+                if (copyAndScaleDown(correctWM).equals(dimInsets)) {
                     insLog.finer("Insets are the same as estimated - no additional reshapes necessary");
                     no_reparent_artifacts = true;
                     insets_corrected = true;
@@ -453,9 +453,6 @@ abstract class XDecoratedPeer extends XWindowPeer {
                 }
             } else {
                 correctWM = XWM.getWM().getInsets(this, xe.get_window(), xe.get_parent());
-                if (correctWM != null) {
-                    correctWM = copyAndScaleDown(correctWM);
-                }
 
                 if (insLog.isLoggable(PlatformLogger.Level.FINER)) {
                     if (correctWM != null) {
@@ -528,14 +525,11 @@ abstract class XDecoratedPeer extends XWindowPeer {
         } else {
             if (!isNull(currentInsets)) {
                 /* insets were set on wdata by System Properties */
-                return copy(currentInsets);
+                return currentInsets;
             } else {
                 Insets res = getWMSetInsets(null);
                 if (res == null) {
                     res = XWM.getWM().guessInsets(this);
-                    if (res != null) {
-                        res = copyAndScaleDown(res);
-                    }
                 }
                 return res;
             }
@@ -547,15 +541,20 @@ abstract class XDecoratedPeer extends XWindowPeer {
         currentInsets = copy(guessed);
     }
 
-    private Insets getRealInsets() {
+    @Override
+    Insets getRealUnscaledInsets() {
         if (isNull(currentInsets)) {
             applyGuessedInsets();
         }
         return currentInsets;
     }
 
+    Insets getRealInsets() {
+        return copyAndScaleDown(getRealUnscaledInsets());
+    }
+
     public Insets getInsets() {
-        Insets in = copy(getRealInsets());
+        Insets in = getRealInsets();
         in.top += getMenuBarHeight();
         if (insLog.isLoggable(PlatformLogger.Level.FINEST)) {
             insLog.finest("Get insets returns {0}", in);
@@ -696,7 +695,7 @@ abstract class XDecoratedPeer extends XWindowPeer {
               break;
           case SET_CLIENT_SIZE: {
               // Sets client rect size. Width and height contain insets.
-              Insets in = currentInsets;
+              Insets in = getRealInsets();
               width -= in.left+in.right;
               height -= in.top+in.bottom;
               dims.setClientSize(width, height);
@@ -740,6 +739,7 @@ abstract class XDecoratedPeer extends XWindowPeer {
             return;
         }
         content.setContentBounds(dims);
+        content_reconfigured = true;
     }
 
     boolean no_reparent_artifacts = false;
@@ -810,7 +810,7 @@ abstract class XDecoratedPeer extends XWindowPeer {
                 }
             }
             if (correctWM != null) {
-                handleCorrectInsets(copyAndScaleDown(correctWM));
+                handleCorrectInsets(correctWM);
             } else {
                 //Only one attempt to correct insets is made (to lower risk)
                 //if insets are still not available we simply set the flag
@@ -820,29 +820,42 @@ abstract class XDecoratedPeer extends XWindowPeer {
 
         updateChildrenSizes();
 
-        Point newLocation = getNewLocation(xe, currentInsets.left, currentInsets.top);
-        WindowDimensions newDimensions =
-                new WindowDimensions(newLocation,
-                                     new Dimension(scaleDown(xe.get_width()),
-                                                   scaleDown(xe.get_height())),
-                                     copy(currentInsets), true);
+        WindowLocation newLocation = getNewLocation(xe);
+        Dimension newDimension = new Dimension(xe.get_width(), xe.get_height());
+        boolean xinerama = XToolkit.localEnv.runningXinerama();
 
-        if (insLog.isLoggable(PlatformLogger.Level.FINER)) {
-            insLog.finer("Insets are {0}, new dimensions {1}",
-                     currentInsets, newDimensions);
-        }
+        SunToolkit.executeOnEventHandlerThread(target, () -> {
+            Point newUserLocation = newLocation.getUserLocation();
+            WindowDimensions newDimensions = new WindowDimensions(newUserLocation,
+                    new Dimension(scaleDown(newDimension.width), scaleDown(newDimension.height)), getRealInsets(), true);
 
-        checkIfOnNewScreen(newDimensions.getBounds());
+            if (insLog.isLoggable(PlatformLogger.Level.FINER)) {
+                insLog.finer("Insets are {0}, new dimensions {1}",
+                        getRealInsets(), newDimensions);
+            }
 
-        Point oldLocation = getLocation();
-        dimensions = newDimensions;
-        if (!newLocation.equals(oldLocation)) {
-            handleMoved(newDimensions);
-        }
-        reconfigureContentWindow(newDimensions);
-        updateChildrenSizes();
+            Point oldLocation = getLocation();
+            dimensions = newDimensions;
+            if (!newUserLocation.equals(oldLocation)) {
+                handleMoved(newDimensions);
+            }
+            reconfigureContentWindow(newDimensions);
+            updateChildrenSizes();
 
-        repositionSecurityWarning();
+            repositionSecurityWarning();
+
+            if (xinerama) {
+                checkIfOnNewScreen(new Rectangle(newLocation.getDeviceLocation(), newDimension));
+            }
+        });
+    }
+
+    @Override
+    WindowLocation queryXLocation() {
+        XContentWindow c = content;
+        boolean client = c == null || !content_reconfigured;
+        return new WindowLocation(XlibUtil.translateCoordinates(client ? window : c.getWindow(),
+                XlibWrapper.RootWindow(XToolkit.getDisplay(), getScreenNumber()), 0, 0), client);
     }
 
     private void checkShellRectSize(Rectangle shellRect) {
@@ -870,7 +883,8 @@ abstract class XDecoratedPeer extends XWindowPeer {
         }
         updateSizeHints(rec.x, rec.y, rec.width, rec.height);
         XlibWrapper.XMoveResizeWindow(XToolkit.getDisplay(), getShell(),
-                                      scaleUp(rec.x), scaleUp(rec.y),
+                                      parentWindow == null ? scaleUpX(rec.x) : scaleUp(rec.x),
+                                      parentWindow == null ? scaleUpY(rec.y) : scaleUp(rec.y),
                                       scaleUp(rec.width), scaleUp(rec.height));
     }
 
@@ -889,7 +903,8 @@ abstract class XDecoratedPeer extends XWindowPeer {
         }
         updateSizeHints(rec.x, rec.y, rec.width, rec.height);
         XlibWrapper.XMoveWindow(XToolkit.getDisplay(), getShell(),
-                                scaleUp(rec.x), scaleUp(rec.y));
+                parentWindow == null ? scaleUpX(rec.x) : scaleUp(rec.x),
+                parentWindow == null ? scaleUpY(rec.y) : scaleUp(rec.y));
     }
 
     public void setResizable(boolean resizable) {
@@ -1337,5 +1352,31 @@ abstract class XDecoratedPeer extends XWindowPeer {
 
     public final boolean getWindowTitleVisible() {
         return getMWMDecorTitleProperty().orElse(true);
+    }
+
+    @Override
+    void syncBounds() {
+        Rectangle r = target.getBounds();
+        if (syncSizeOnly && dimensions != null) {
+            dimensions.setSize(r.width, r.height);
+            dimensions.setInsets(getRealInsets());
+            xSetSize(r.width, r.height);
+        } else {
+            dimensions = new WindowDimensions(r, getRealInsets(), false);
+            xSetBounds(r.x, r.y, r.width, r.height);
+        }
+        reconfigureContentWindow(dimensions);
+        doValidateSurface();
+        layout();
+    }
+
+    @Override
+    public boolean updateGraphicsData(GraphicsConfiguration gc) {
+        if (content != null) {
+            content.initGraphicsConfiguration();
+        }
+        boolean ret = super.updateGraphicsData(gc);
+        updateMinimumSize();
+        return ret;
     }
 }
