@@ -1031,9 +1031,7 @@ final class XWM
         try {
             Rectangle shellBounds;
             if (getWMID() != UNITY_COMPIZ_WM) {
-                shellBounds = window.getShellBounds();
-                shellBounds.translate(-window.currentInsets.left,
-                                      -window.currentInsets.top);
+                shellBounds = window.getBounds();
             } else {
                 shellBounds = window.getDimensions().getScreenBounds();
             }
@@ -1041,8 +1039,8 @@ final class XWM
             requestWMExtents(window.getWindow());
             XlibWrapper.XMoveResizeWindow(XToolkit.getDisplay(),
                                           window.getShell(),
-                                          window.scaleUp(shellBounds.x),
-                                          window.scaleUp(shellBounds.y),
+                                          window.scaleUpX(shellBounds.x),
+                                          window.scaleUpY(shellBounds.y),
                                           window.scaleUp(shellBounds.width),
                                           window.scaleUp(shellBounds.height));
             /* REMINDER: will need to revisit when setExtendedStateBounds is added */
@@ -1079,8 +1077,8 @@ final class XWM
                 XToolkit.XSync();
                 XlibWrapper.XMoveResizeWindow(XToolkit.getDisplay(),
                                               window.getShell(),
-                                              window.scaleUp(shellBounds.x),
-                                              window.scaleUp(shellBounds.y),
+                                              window.scaleUpX(shellBounds.x),
+                                              window.scaleUpY(shellBounds.y),
                                               window.scaleUp(shellBounds.width),
                                               window.scaleUp(shellBounds.height));
             }

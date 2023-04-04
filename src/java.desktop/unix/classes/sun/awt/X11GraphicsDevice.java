@@ -110,19 +110,33 @@ public final class X11GraphicsDevice extends GraphicsDevice
         return TYPE_RASTER_SCREEN;
     }
 
-    public int scaleUp(int x) {
-        return Region.clipRound(x * (double)getScaleFactor());
+    public int scaleUp(int i) {
+        return Region.clipRound(i * (double)getScaleFactor());
+    }
+    public int scaleUpX(int x) {
+        int s = getBounds().x;
+        return Region.clipRound(s + (x - s) * (double)getScaleFactor());
+    }
+    public int scaleUpY(int y) {
+        int s = getBounds().y;
+        return Region.clipRound(s + (y - s) * (double)getScaleFactor());
     }
 
-    public int scaleDown(int x) {
-        return Region.clipRound(x / (double)getScaleFactor());
+    public int scaleDown(int i) {
+        return Region.clipRound(i / (double)getScaleFactor());
+    }
+    public int scaleDownX(int x) {
+        int s = getBounds().x;
+        return Region.clipRound(s + (x - s) / (double)getScaleFactor());
+    }
+    public int scaleDownY(int y) {
+        int s = getBounds().y;
+        return Region.clipRound(s + (y - s) / (double)getScaleFactor());
     }
 
     public Rectangle getBounds() {
         Rectangle rect = pGetBounds(getScreen());
         if (getScaleFactor() != 1) {
-            rect.x = scaleDown(rect.x);
-            rect.y = scaleDown(rect.y);
             rect.width = scaleDown(rect.width);
             rect.height = scaleDown(rect.height);
         }
