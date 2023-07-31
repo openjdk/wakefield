@@ -28,6 +28,7 @@
 #include <signal.h>
 #include <stdlib.h>
 
+int isMonitorFramebufferScalingEnabled();
 double getNativeScaleFactor();
 
 #endif
