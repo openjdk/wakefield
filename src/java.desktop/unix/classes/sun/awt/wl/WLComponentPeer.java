@@ -147,15 +147,12 @@ public class WLComponentPeer implements ComponentPeer {
     }
 
     public void postPaintEvent(int x, int y, int w, int h) {
-        if (!hasSurface()) {
-           log.warning("WLComponentPeer: No surface. Skipping paint request x=" + x + " y=" + y +
-                        " width=" + w + " height=" + h);
-            return;
-        }
-        PaintEvent event = PaintEventDispatcher.getPaintEventDispatcher().
-                createPaintEvent(target, x, y, w, h);
-        if (event != null) {
-            WLToolkit.postEvent(event);
+        if (isVisible()) {
+            PaintEvent event = PaintEventDispatcher.getPaintEventDispatcher().
+                    createPaintEvent(target, x, y, w, h);
+            if (event != null) {
+                WLToolkit.postEvent(event);
+            }
         }
     }
 
@@ -168,7 +165,7 @@ public class WLComponentPeer implements ComponentPeer {
     }
 
     boolean isVisible() {
-        return visible;
+        return visible && hasSurface();
     }
 
     boolean hasSurface() {
@@ -234,11 +231,12 @@ public class WLComponentPeer implements ComponentPeer {
 
     protected void wlSetVisible(boolean v) {
         this.visible = v;
-        if (this.visible) {
+        if (v) {
             final String title = getTitle();
             final boolean isWlPopup = targetIsWlPopup();
             final int thisWidth = getWidth();
             final int thisHeight = getHeight();
+            final boolean isModal = targetIsModal();
             performLocked(() -> {
                 if (isWlPopup) {
                     Window popup = (Window) target;
@@ -264,7 +262,10 @@ public class WLComponentPeer implements ComponentPeer {
                             offsetX, offsetY);
                 } else {
                     nativeCreateWLSurface(nativePtr,
-                            getParentNativePtr(target), target.getX(), target.getY(), title, appID);
+                            getParentNativePtr(target),
+                            target.getX(), target.getY(),
+                            isModal,
+                            title, appID);
                 }
                 final long wlSurfacePtr = getWLSurface(nativePtr);
                 WLToolkit.registerWLSurface(wlSurfacePtr, this);
@@ -291,6 +292,12 @@ public class WLComponentPeer implements ComponentPeer {
         return target instanceof Window window
                 && window.getType() == Window.Type.POPUP
                 && AWTAccessor.getWindowAccessor().getPopupParent(window) != null;
+    }
+
+    private boolean targetIsModal() {
+        return target instanceof Dialog dialog
+                && (dialog.getModalityType() == Dialog.ModalityType.APPLICATION_MODAL
+                    || dialog.getModalityType() == Dialog.ModalityType.TOOLKIT_MODAL);
     }
 
     void configureWLSurface() {
@@ -375,7 +382,7 @@ public class WLComponentPeer implements ComponentPeer {
 
     public void setBounds(int x, int y, int width, int height, int op) {
         final boolean positionChanged = this.x != x || this.y != y;
-        if (positionChanged) {
+        if (positionChanged && isVisible()) {
             performLocked(() -> WLRobotPeer.setLocationOfWLSurface(getWLSurface(nativePtr), x, y));
         }
         this.x = x;
@@ -402,6 +409,7 @@ public class WLComponentPeer implements ComponentPeer {
 
             WLToolkit.postEvent(new ComponentEvent(getTarget(), ComponentEvent.COMPONENT_RESIZED));
         }
+
         postPaintEvent();
     }
 
@@ -847,7 +855,7 @@ public class WLComponentPeer implements ComponentPeer {
     protected native long nativeCreateFrame();
 
     protected native void nativeCreateWLSurface(long ptr, long parentPtr,
-                                                int x, int y,
+                                                int x, int y, boolean isModal,
                                                 String title, String appID);
 
     protected native void nativeCreateWLPopup(long ptr, long parentPtr,
