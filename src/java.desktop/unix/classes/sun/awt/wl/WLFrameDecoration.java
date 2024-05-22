@@ -76,6 +76,7 @@ public class WLFrameDecoration {
 
     private final WLDecoratedPeer peer;
     private final boolean isUndecorated;
+    private boolean hasServerSideDecoration = false;
 
 
     private final ButtonState closeButton;
@@ -102,20 +103,28 @@ public class WLFrameDecoration {
         }
     }
 
+    public boolean isUndecorated() {
+        return isUndecorated;
+    }
+
+    private boolean doesNotDrawClientSideDecoration() {
+        return isUndecorated || hasServerSideDecoration;
+    }
+
     public Insets getInsets() {
-        return isUndecorated
+        return doesNotDrawClientSideDecoration()
                 ? new Insets(0, 0, 0, 0)
                 : new Insets(HEIGHT, 0, 0, 0);
     }
 
     public Rectangle getBounds() {
-        return isUndecorated
+        return doesNotDrawClientSideDecoration()
                 ? new Rectangle(0, 0, 0, 0)
                 : new Rectangle(0, 0, peer.getWidth(), HEIGHT);
     }
 
     public Dimension getMinimumSize() {
-        return isUndecorated
+        return doesNotDrawClientSideDecoration()
                 ? new Dimension(0, 0)
                 : new Dimension(getButtonSpaceWidth(), HEIGHT);
     }
@@ -191,7 +200,10 @@ public class WLFrameDecoration {
     }
 
     public void paint(final Graphics g) {
-        if (isUndecorated) return;
+        if (doesNotDrawClientSideDecoration()) {
+            needRepaint = false;
+            return;
+        }
 
         int width = peer.getWidth();
         int height = peer.getHeight();
@@ -322,6 +334,7 @@ public class WLFrameDecoration {
     }
 
     boolean processMouseEvent(MouseEvent e) {
+        if (hasServerSideDecoration) return false;
         if (isUndecorated && !peer.isResizable()) return false;
 
         final boolean isLMB = e.getButton() == MouseEvent.BUTTON1;
@@ -405,6 +418,15 @@ public class WLFrameDecoration {
         }
     }
 
+    void setHasServerSideDecoration(boolean hasServerSideDecoration) {
+        boolean didNotDrawClientSideDecoration = doesNotDrawClientSideDecoration();
+        this.hasServerSideDecoration = hasServerSideDecoration;
+        if (doesNotDrawClientSideDecoration() != didNotDrawClientSideDecoration) {
+            needRepaint = true;
+            peer.postPaintEvent();
+        }
+    }
+
     private void toggleMaximizedState() {
         peer.setExtendedState(peer.getState() == Frame.NORMAL ? Frame.MAXIMIZED_BOTH : Frame.NORMAL);
     }
@@ -416,7 +438,7 @@ public class WLFrameDecoration {
     private volatile boolean needRepaint = true;
 
     boolean isRepaintNeeded() {
-        return !isUndecorated && needRepaint;
+        return needRepaint;
     }
 
     void markRepaintNeeded() {
@@ -424,6 +446,7 @@ public class WLFrameDecoration {
     }
 
     Cursor getCursor(int x, int y) {
+        if (hasServerSideDecoration) return null;
         int edges = getResizeEdges(x, y);
         if (edges != 0) {
             return Cursor.getPredefinedCursor(RESIZE_CURSOR_TYPES[edges]);

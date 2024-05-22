@@ -308,7 +308,8 @@ public class WLComponentPeer implements ComponentPeer {
                             getParentNativePtr(target),
                             xNative, yNative,
                             isModal, isMaximized, isMinimized,
-                            title, WLToolkit.getApplicationID());
+                            title, WLToolkit.getApplicationID(),
+                            isUndecorated());
                 }
                 final long wlSurfacePtr = getWLSurface(nativePtr);
                 WLToolkit.registerWLSurface(wlSurfacePtr, this);
@@ -325,6 +326,10 @@ public class WLComponentPeer implements ComponentPeer {
                 nativeHideFrame(nativePtr);
             });
         }
+    }
+
+    protected boolean isUndecorated() {
+        return true;
     }
 
     /**
@@ -1003,7 +1008,7 @@ public class WLComponentPeer implements ComponentPeer {
 
     protected native void nativeCreateWLSurface(long ptr, long parentPtr,
                                                 int x, int y, boolean isModal, boolean isMaximized, boolean isMinimized,
-                                                String title, String appID);
+                                                String title, String appID, boolean wantsClientSideDecoration);
 
     protected native void nativeCreateWLPopup(long ptr, long parentPtr,
                                               int width, int height,
@@ -1205,7 +1210,7 @@ public class WLComponentPeer implements ComponentPeer {
         }
     }
 
-    void notifyConfigured(int newXNative, int newYNative, int newWidthNative, int newHeightNative, boolean active, boolean maximized) {
+    void notifyConfigured(int newXNative, int newYNative, int newWidthNative, int newHeightNative, boolean active, boolean maximized, boolean serverSideDecorations) {
         int newWidth = surfaceUnitsToJavaUnits(newWidthNative);
         int newHeight = surfaceUnitsToJavaUnits(newHeightNative);
         final long wlSurfacePtr = getWLSurface(nativePtr);
