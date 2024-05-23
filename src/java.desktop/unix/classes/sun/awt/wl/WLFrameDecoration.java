@@ -200,10 +200,7 @@ public class WLFrameDecoration {
     }
 
     public void paint(final Graphics g) {
-        if (doesNotDrawClientSideDecoration()) {
-            needRepaint = false;
-            return;
-        }
+        if (doesNotDrawClientSideDecoration()) return;
 
         int width = peer.getWidth();
         int height = peer.getHeight();
