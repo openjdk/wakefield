@@ -496,6 +496,9 @@ Java_sun_awt_wl_WLComponentPeer_nativeCreateWLSurface
         zxdg_toplevel_decoration_v1_add_listener(frame->zxdg_toplevel_decoration, &zxdg_toplevel_decoration_v1_listener, frame);
         uint32_t mode = ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE;
         if (isUndecorated) {
+            // Even if we don't want SSD, the server can still enforce SSD.
+            // In this case we want to allow the server to tell us about this so we create an decoration object
+            // even in this case.
             mode = ZXDG_TOPLEVEL_DECORATION_V1_MODE_CLIENT_SIDE;
         }
         zxdg_toplevel_decoration_v1_set_mode(frame->zxdg_toplevel_decoration, mode);
