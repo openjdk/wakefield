@@ -419,7 +419,7 @@ public class WLFrameDecoration {
         boolean didNotDrawClientSideDecoration = doesNotDrawClientSideDecoration();
         this.hasServerSideDecoration = hasServerSideDecoration;
         if (doesNotDrawClientSideDecoration() != didNotDrawClientSideDecoration) {
-            needRepaint = true;
+            needRepaint = !doesNotDrawClientSideDecoration();
             WLToolkit.postEvent(new ComponentEvent(peer.target, ComponentEvent.COMPONENT_RESIZED));
             peer.postPaintEvent();
         }
