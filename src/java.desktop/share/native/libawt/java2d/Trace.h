@@ -172,6 +172,16 @@ J2dTraceImpl(int level, jboolean cr, const char *string, ...);
 #define J2dRlsTraceLn5(level, string, arg1, arg2, arg3, arg4, arg5) { \
             J2dTraceImpl(level, JNI_TRUE, string, arg1, arg2, arg3, arg4, arg5); \
         }
+#define J2dRlsTraceLn6(level, string, arg1, arg2, arg3, arg4, arg5, arg6) { \
+            J2dTraceImpl(level, JNI_TRUE, string, arg1, arg2, arg3, arg4, arg5, arg6); \
+        }
+#define J2dRlsTraceLn7(level, string, arg1, arg2, arg3, arg4, arg5, arg6, arg7) { \
+            J2dTraceImpl(level, JNI_TRUE, string, arg1, arg2, arg3, arg4, arg5, arg6, arg7); \
+        }
+#define J2dRlsTraceLn8(level, string, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8) { \
+            J2dTraceImpl(level, JNI_TRUE, string, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8); \
+        }
+#define J2dRlsTraceLnVar(level, ...) J2dTraceImpl(level, JNI_TRUE, __VA_ARGS__) // TODO https://github.com/openjdk/jdk/pull/24949
 
 #ifdef __cplusplus
 }
