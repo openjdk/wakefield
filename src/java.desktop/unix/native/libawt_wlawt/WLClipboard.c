@@ -320,8 +320,6 @@ wl_data_source_handle_cancelled(
         void *data,
         struct wl_data_source *source)
 {
-    JNU_RUNTIME_ASSERT(getEnv(), data != NULL && source == ((DataSourcePayload*)data)->source, "Unexpected data source cancelled");
-
     OfferCancelled(data);
 }
 
@@ -349,8 +347,6 @@ zwp_selection_source_handle_cancelled(
         void *data,
         struct zwp_primary_selection_source_v1 *source)
 {
-    JNU_RUNTIME_ASSERT(getEnv(), data != NULL && source == ((DataSourcePayload*)data)->source, "Unexpected selection source cancelled");
-
     OfferCancelled(data);
 }
 
@@ -652,8 +648,6 @@ Java_sun_awt_wl_WLClipboard_cancelOffer(
         jobject obj,
         jlong payloadNativePtr)
 {
-    JNU_RUNTIME_ASSERT(env, payloadNativePtr != 0, "NULL pointer to clipboard data source");
-
     CleanupClipboard(jlong_to_ptr(payloadNativePtr));
 }
 

@@ -50,9 +50,7 @@ inline VkBool32 VKUtil_CheckError(VkResult result, const char* errorMessage) {
 
 #define VK_FATAL_ERROR(MESSAGE) do {                              \
     J2dRlsTraceLn(J2D_TRACE_ERROR, MESSAGE "\n    at " LOCATION); \
-    JNIEnv* env = (JNIEnv*)JNU_GetEnv(jvm, JNI_VERSION_1_2);      \
-    if (env != NULL) JNU_RUNTIME_ASSERT(env, 0, (MESSAGE));       \
-    else abort();                                                 \
+    abort();                                                      \
 } while(0)
 #define VK_UNHANDLED_ERROR() VK_FATAL_ERROR("Unhandled Vulkan error")
 #define VK_RUNTIME_ASSERT(...) if (!(__VA_ARGS__)) VK_FATAL_ERROR("Vulkan assertion failed: " #__VA_ARGS__)
