@@ -125,6 +125,12 @@ public class GTKLookAndFeel extends SynthLookAndFeel {
         return IS_3;
     }
 
+    private final static boolean isWayland;
+
+    static {
+        isWayland = "sun.awt.wl.WLToolkit".equals(Toolkit.getDefaultToolkit().getClass().getName());
+    }
+
     /**
      * Maps a swing constant to a GTK constant.
      */
