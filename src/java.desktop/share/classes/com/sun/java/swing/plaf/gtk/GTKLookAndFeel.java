@@ -44,7 +44,6 @@ import java.util.HashMap;
 import java.util.Map;
 import sun.awt.SunToolkit;
 import sun.awt.UNIXToolkit;
-import sun.awt.OSInfo;
 import sun.security.action.GetPropertyAction;
 import sun.swing.DefaultLayoutStyle;
 import sun.swing.SwingAccessor;
@@ -115,6 +114,12 @@ public class GTKLookAndFeel extends SynthLookAndFeel {
 
     static boolean is3() {
         return IS_3;
+    }
+
+    private final static boolean isWayland;
+
+    static {
+        isWayland = "sun.awt.wl.WLToolkit".equals(Toolkit.getDefaultToolkit().getClass().getName());
     }
 
     /**
