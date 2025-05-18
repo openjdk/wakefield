@@ -361,15 +361,19 @@ SplashInitPlatform(Splash *splash) {
     splash->wl_state->wl_shm = NULL;
     splash->wl_state->wl_compositor = NULL;
     splash->wl_state->wl_subcompositor = NULL;
+    splash->wl_state->wl_output = NULL;
     splash->wl_state->wl_seat = NULL;
-    splash->wl_state->xdg_wm_base = NULL;
-    splash->wl_state->wl_subsurfaces_subsurface = NULL;
+    splash->wl_state->pointer = NULL;
 
+    splash->wl_state->xdg_wm_base = NULL;
     splash->wl_state->wl_surface = NULL;
+    splash->wl_state->wl_subsurfaces_subsurface = NULL;
     splash->wl_state->wl_subsurfaces_surface = NULL;
     splash->wl_state->xdg_surface = NULL;
     splash->wl_state->xdg_toplevel = NULL;
-    splash->wl_state->pointer = NULL;
+
+    splash->wl_state->cursor_theme = NULL;
+    splash->wl_state->default_cursor = NULL;
     splash->wl_state->cursor_surface = NULL;
 
     splash->main_buffer->wl_buffer = NULL;
@@ -413,7 +417,7 @@ SplashReconfigureNow(Splash * splash) {
         if (currentOutputInfo == NULL) {
             return false;
         }
-        
+
         int outputScale = currentOutputInfo->scale;
         int imageScale = outputScale / splash->scaleFactor;
         int offsetX = currentOutputInfo->width - splash->window_width * outputScale;
@@ -553,6 +557,7 @@ SplashDonePlatform(Splash * splash) {
     DESTROY_NOT_NULL(splash->wl_state->xdg_surface, xdg_surface_destroy)
     DESTROY_NOT_NULL(splash->wl_state->xdg_toplevel, xdg_toplevel_destroy)
     DESTROY_NOT_NULL(splash->wl_state->pointer, wl_pointer_destroy)
+    DESTROY_NOT_NULL(splash->wl_state->cursor_theme, wl_cursor_theme_destroy)
     DESTROY_NOT_NULL(splash->wl_state->cursor_surface, wl_surface_destroy)
 
     destroy_buffer(splash->main_buffer);
