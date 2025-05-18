@@ -242,8 +242,6 @@ handle_toplevel_configure(void *data, struct xdg_toplevel *toplevel, int32_t wid
         splash->window_width = width;
         splash->window_height = height;
     }
-
-    SplashReconfigure(splash);
 }
 
 static const struct xdg_toplevel_listener xdg_toplevel_listener = {
@@ -257,6 +255,9 @@ pointer_handle_enter(void *data, struct wl_pointer *pointer, uint32_t serial, st
     struct OutputInfo *currentOutputInfo = getOutputInfo(splash->wl_state->wl_output);
     int outputScale = (currentOutputInfo != NULL) ? currentOutputInfo->scale : 1;
 
+    if (splash->wl_state->default_cursor == NULL) {
+        return;
+    }
     struct wl_cursor_image *image = splash->wl_state->default_cursor->images[0];
     wl_pointer_set_cursor(pointer, serial, splash->wl_state->cursor_surface,
                           image->hotspot_x / outputScale, image->hotspot_y / outputScale);
@@ -336,6 +337,8 @@ SplashCreateWindow(Splash * splash) {
             splash->wl_state->wl_subcompositor, splash->wl_state->wl_subsurfaces_surface, splash->wl_state->wl_surface);
     NULL_CHECK(splash->wl_state->wl_subsurfaces_subsurface, "Cannot create subsurface\n")
     wl_subsurface_set_desync(splash->wl_state->wl_subsurfaces_subsurface);
+
+    wl_surface_commit(splash->wl_state->wl_surface);
 
     return true;
 }
