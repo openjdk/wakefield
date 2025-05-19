@@ -517,16 +517,14 @@ GetDisplayFD(Splash * splash) {
 
 void
 SplashUpdateCursor(Splash * splash) {
-    static int index = 0;
-
     wayland_state *state = splash->wl_state;
     struct wl_buffer *buffer;
     struct wl_cursor *cursor = state->default_cursor;
     struct wl_cursor_image *image;
 
     if (cursor) {
+        int index = wl_cursor_frame(cursor, SplashTime());
         image = state->default_cursor->images[index];
-        index = (index + 1) % (state->default_cursor->image_count);
         buffer = wl_cursor_image_get_buffer(image);
         if (!buffer)
             return;
