@@ -117,7 +117,7 @@ public class WLComponentPeer implements ComponentPeer {
     final WLRepaintArea paintArea;
     boolean paintPending = false; // protected by dataLock
     boolean isLayouting = false; // protected by dataLock
-    boolean visible = false;
+    boolean visible = false; // protected by dataLock
 
     private final Object dataLock = new Object();
     boolean sizeIsBeingConfigured = false; // protected by dataLock
@@ -187,7 +187,9 @@ public class WLComponentPeer implements ComponentPeer {
     }
 
     boolean isVisible() {
-        return visible && hasSurface();
+        synchronized (dataLock) {
+            return visible && hasSurface();
+        }
     }
 
     boolean hasSurface() {
@@ -306,7 +308,11 @@ public class WLComponentPeer implements ComponentPeer {
     }
 
     protected void wlSetVisible(boolean v) {
-        this.visible = v;
+        synchronized (dataLock) {
+            if (visible == v) return;
+            this.visible = v;
+        }
+
         if (v) {
             String title = getTitle();
             boolean isWlPopup = targetIsWlPopup();
@@ -1382,6 +1388,12 @@ public class WLComponentPeer implements ComponentPeer {
 
     private Dimension constrainSize(Dimension bounds) {
         return constrainSize(bounds.width, bounds.height);
+    }
+
+    void notifyPopupDone() {
+        assert targetIsWlPopup();
+
+        target.setVisible(false);
     }
 
     // The following methods exist to prevent native code from using stale pointers (pointing to memory already
