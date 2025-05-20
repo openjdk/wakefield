@@ -351,33 +351,12 @@ SplashInitPlatform(Splash *splash) {
     splash->buffers = 0;
     splash->window_width = 0;
     splash->window_height = 0;
-    splash->wl_state = malloc(sizeof(wayland_state));
+    splash->wl_state = calloc(1, sizeof(wayland_state));
     NULL_CHECK_CLEANUP(splash->wl_state, "Cannot allocate enough memory\n")
     splash->buffers = malloc(sizeof(Buffer) * BUFFERS_COUNT);
     NULL_CHECK_CLEANUP(splash->buffers, "Cannot allocate enough memory\n")
     splash->main_buffer = malloc(sizeof(Buffer));
     NULL_CHECK_CLEANUP(splash->main_buffer, "Cannot allocate enough memory\n")
-
-    splash->wl_state->wl_display = NULL;
-    splash->wl_state->wl_registry = NULL;
-
-    splash->wl_state->wl_shm = NULL;
-    splash->wl_state->wl_compositor = NULL;
-    splash->wl_state->wl_subcompositor = NULL;
-    splash->wl_state->wl_output = NULL;
-    splash->wl_state->wl_seat = NULL;
-    splash->wl_state->pointer = NULL;
-
-    splash->wl_state->xdg_wm_base = NULL;
-    splash->wl_state->wl_surface = NULL;
-    splash->wl_state->wl_subsurfaces_subsurface = NULL;
-    splash->wl_state->wl_subsurfaces_surface = NULL;
-    splash->wl_state->xdg_surface = NULL;
-    splash->wl_state->xdg_toplevel = NULL;
-
-    splash->wl_state->cursor_theme = NULL;
-    splash->wl_state->default_cursor = NULL;
-    splash->wl_state->cursor_surface = NULL;
 
     splash->main_buffer->wl_buffer = NULL;
     splash->main_buffer->data = NULL;
