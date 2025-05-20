@@ -242,8 +242,6 @@ handle_toplevel_configure(void *data, struct xdg_toplevel *toplevel, int32_t wid
         splash->window_width = width;
         splash->window_height = height;
     }
-
-    SplashReconfigure(splash);
 }
 
 static const struct xdg_toplevel_listener xdg_toplevel_listener = {
@@ -257,6 +255,9 @@ pointer_handle_enter(void *data, struct wl_pointer *pointer, uint32_t serial, st
     struct OutputInfo *currentOutputInfo = getOutputInfo(splash->wl_state->wl_output);
     int outputScale = (currentOutputInfo != NULL) ? currentOutputInfo->scale : 1;
 
+    if (splash->wl_state->default_cursor == NULL) {
+        return;
+    }
     struct wl_cursor_image *image = splash->wl_state->default_cursor->images[0];
     wl_pointer_set_cursor(pointer, serial, splash->wl_state->cursor_surface,
                           image->hotspot_x / outputScale, image->hotspot_y / outputScale);
@@ -337,6 +338,8 @@ SplashCreateWindow(Splash * splash) {
     NULL_CHECK(splash->wl_state->wl_subsurfaces_subsurface, "Cannot create subsurface\n")
     wl_subsurface_set_desync(splash->wl_state->wl_subsurfaces_subsurface);
 
+    wl_surface_commit(splash->wl_state->wl_surface);
+
     return true;
 }
 
@@ -348,29 +351,12 @@ SplashInitPlatform(Splash *splash) {
     splash->buffers = 0;
     splash->window_width = 0;
     splash->window_height = 0;
-    splash->wl_state = malloc(sizeof(wayland_state));
+    splash->wl_state = calloc(1, sizeof(wayland_state));
     NULL_CHECK_CLEANUP(splash->wl_state, "Cannot allocate enough memory\n")
     splash->buffers = malloc(sizeof(Buffer) * BUFFERS_COUNT);
     NULL_CHECK_CLEANUP(splash->buffers, "Cannot allocate enough memory\n")
     splash->main_buffer = malloc(sizeof(Buffer));
     NULL_CHECK_CLEANUP(splash->main_buffer, "Cannot allocate enough memory\n")
-
-    splash->wl_state->wl_display = NULL;
-    splash->wl_state->wl_registry = NULL;
-
-    splash->wl_state->wl_shm = NULL;
-    splash->wl_state->wl_compositor = NULL;
-    splash->wl_state->wl_subcompositor = NULL;
-    splash->wl_state->wl_seat = NULL;
-    splash->wl_state->xdg_wm_base = NULL;
-    splash->wl_state->wl_subsurfaces_subsurface = NULL;
-
-    splash->wl_state->wl_surface = NULL;
-    splash->wl_state->wl_subsurfaces_surface = NULL;
-    splash->wl_state->xdg_surface = NULL;
-    splash->wl_state->xdg_toplevel = NULL;
-    splash->wl_state->pointer = NULL;
-    splash->wl_state->cursor_surface = NULL;
 
     splash->main_buffer->wl_buffer = NULL;
     splash->main_buffer->data = NULL;
@@ -413,7 +399,7 @@ SplashReconfigureNow(Splash * splash) {
         if (currentOutputInfo == NULL) {
             return false;
         }
-        
+
         int outputScale = currentOutputInfo->scale;
         int imageScale = outputScale / splash->scaleFactor;
         int offsetX = currentOutputInfo->width - splash->window_width * outputScale;
@@ -510,16 +496,14 @@ GetDisplayFD(Splash * splash) {
 
 void
 SplashUpdateCursor(Splash * splash) {
-    static int index = 0;
-
     wayland_state *state = splash->wl_state;
     struct wl_buffer *buffer;
     struct wl_cursor *cursor = state->default_cursor;
     struct wl_cursor_image *image;
 
     if (cursor) {
+        int index = wl_cursor_frame(cursor, SplashTime());
         image = state->default_cursor->images[index];
-        index = (index + 1) % (state->default_cursor->image_count);
         buffer = wl_cursor_image_get_buffer(image);
         if (!buffer)
             return;
@@ -553,6 +537,7 @@ SplashDonePlatform(Splash * splash) {
     DESTROY_NOT_NULL(splash->wl_state->xdg_surface, xdg_surface_destroy)
     DESTROY_NOT_NULL(splash->wl_state->xdg_toplevel, xdg_toplevel_destroy)
     DESTROY_NOT_NULL(splash->wl_state->pointer, wl_pointer_destroy)
+    DESTROY_NOT_NULL(splash->wl_state->cursor_theme, wl_cursor_theme_destroy)
     DESTROY_NOT_NULL(splash->wl_state->cursor_surface, wl_surface_destroy)
 
     destroy_buffer(splash->main_buffer);
