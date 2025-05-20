@@ -253,7 +253,7 @@ public final class WLClipboard extends SunClipboard {
     }
 
     /**
-     * @return formats the current clipboard is available in; could be null
+     * @return formats the current clipboard is available in; could be empty
      */
     @Override
     protected long[] getClipboardFormats() {
@@ -265,7 +265,7 @@ public final class WLClipboard extends SunClipboard {
                 }
                 return res;
             } else {
-                return null;
+                return new long[0];
             }
         }
     }
