@@ -55,13 +55,7 @@ struct VKRenderingContext {
     ARRAY(VKIntVertex) clipSpanVertices;
 };
 
-typedef struct {
-    uint32_t barrierCount;
-    VkPipelineStageFlags srcStages;
-    VkPipelineStageFlags dstStages;
-} VKBarrierBatch;
-
-typedef void (*VKDisposeHandler)(VKDevice* device, void* ctx);
+typedef void (*VKCleanupHandler)(VKDevice* device, void* data);
 
 VKRenderer* VKRenderer_Create(VKDevice* device);
 
@@ -77,14 +71,11 @@ VkBool32 VKRenderer_Validate(VKShader shader, VkPrimitiveTopology topology, Alph
 VkCommandBuffer VKRenderer_Record(VKRenderer* renderer);
 
 /**
- * Prepare image barrier info to be executed in batch, if needed.
+ * Record barrier batches into the primary command buffer.
  */
-void VKRenderer_AddImageBarrier(VkImageMemoryBarrier* barriers, VKBarrierBatch* batch,
-                                VKImage* image, VkPipelineStageFlags stage, VkAccessFlags access, VkImageLayout layout);
-
-void VKRenderer_AddBufferBarrier(VkBufferMemoryBarrier* barriers, VKBarrierBatch* batch,
-                                VKBuffer* buffer, VkPipelineStageFlags stage,
-                                VkAccessFlags access);
+void VKRenderer_RecordBarriers(VKRenderer* renderer,
+                               VkBufferMemoryBarrier* bufferBarriers, VKBarrierBatch* bufferBatch,
+                               VkImageMemoryBarrier* imageBarriers, VKBarrierBatch* imageBatch);
 
 void VKRenderer_CreateImageDescriptorSet(VKRenderer* renderer, VkDescriptorPool* descriptorPool, VkDescriptorSet* set);
 
@@ -113,10 +104,11 @@ void VKRenderer_DestroyRenderPass(VKSDOps* surface);
  */
 VkBool32 VKRenderer_FlushRenderPass(VKSDOps* surface);
 
+/**
+ * Register a handler to be called after the current primary command buffer finishes execution.
+ */
+void VKRenderer_CleanupLater(VKRenderer* renderer, VKCleanupHandler hnd, void* data);
 
-void VKRenderer_DisposeOnPrimaryComplete(VKRenderer* renderer, VKDisposeHandler hnd, void* ctx);
-
-void VKRenderer_DisposePrimaryResources(VKRenderer* renderer);
 /**
  * Flush pending render pass and queue surface for presentation (if applicable).
  */

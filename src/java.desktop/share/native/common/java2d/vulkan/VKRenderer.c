@@ -84,9 +84,9 @@ RING_BUFFER(struct PoolEntry_ ## NAME { \
 #define POOL_FREE(RENDERER, NAME) RING_BUFFER_FREE((RENDERER)->NAME)
 
 typedef struct {
-    VKDisposeHandler hnd;
-    void* ctx;
-} VKDisposeRecord;
+    VKCleanupHandler handler;
+    void* data;
+} VKCleanupEntry;
 
 /**
  * Renderer attached to the device.
@@ -100,11 +100,10 @@ struct VKRenderer {
     POOL(VkSemaphore,       semaphorePool);
     POOL(VKBuffer,          vertexBufferPool);
     POOL(VKTexelBuffer,     maskFillBufferPool);
-    POOL(VkFramebuffer,     framebufferDestructionQueue);
+    POOL(VKCleanupEntry,    cleanupQueue);
     ARRAY(VKMemory)         bufferMemoryPages;
     ARRAY(VkDescriptorPool) descriptorPools;
     ARRAY(VkDescriptorPool) imageDescriptorPools;
-    ARRAY(VKDisposeRecord)  disposeRecords;
 
     /**
      * Last known timestamp reached by GPU execution. Resources with equal or less timestamp may be safely reused.
@@ -303,6 +302,16 @@ void VKRenderer_CreateImageDescriptorSet(VKRenderer* renderer, VkDescriptorPool*
     *set = VKRenderer_AllocateImageDescriptorSet(renderer, *descriptorPool);
 }
 
+static void VKRenderer_CleanupPendingResources(VKRenderer* renderer) {
+    VKDevice* device = renderer->device;
+    for (;;) {
+        VKCleanupEntry entry = { NULL, NULL };
+        POOL_TAKE(renderer, cleanupQueue, entry);
+        if (entry.handler == NULL) break;
+        entry.handler(device, entry.data);
+    }
+}
+
 static VkSemaphore VKRenderer_AddPendingSemaphore(VKRenderer* renderer) {
     VKDevice* device = renderer->device;
     VkSemaphore semaphore = VK_NULL_HANDLE;
@@ -318,21 +327,22 @@ static VkSemaphore VKRenderer_AddPendingSemaphore(VKRenderer* renderer) {
     return semaphore;
 }
 
+/**
+ * Wait till the GPU execution reached a given timestamp.
+ */
 static void VKRenderer_Wait(VKRenderer* renderer, uint64_t timestamp) {
-    if (renderer->readTimestamp >= timestamp) return;
-    VKDevice* device = renderer->device;
-    VkSemaphoreWaitInfo semaphoreWaitInfo = {
+    if (renderer->readTimestamp < timestamp) {
+        VkSemaphoreWaitInfo semaphoreWaitInfo = {
             .sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
             .flags = 0,
             .semaphoreCount = 1,
             .pSemaphores = &renderer->timelineSemaphore,
             .pValues = &timestamp
-    };
-    VK_IF_ERROR(device->vkWaitSemaphores(device->handle, &semaphoreWaitInfo, -1)) {
-    } else {
-        // On success, update last known timestamp.
-        renderer->readTimestamp = timestamp;
+        };
+        VK_IF_ERROR(renderer->device->vkWaitSemaphores(renderer->device->handle, &semaphoreWaitInfo, -1)) VK_UNHANDLED_ERROR();
+        else renderer->readTimestamp = timestamp; // On success, update the last known timestamp.
     }
+    VKRenderer_CleanupPendingResources(renderer);
 }
 
 void VKRenderer_Sync(VKRenderer* renderer) {
@@ -413,9 +423,6 @@ void VKRenderer_Destroy(VKRenderer* renderer) {
         device->vkDestroyBufferView(device->handle, entry->value.view, NULL);
         device->vkDestroyBuffer(device->handle, entry->value.buffer.handle, NULL);
     }
-    POOL_DRAIN_FOR(renderer, framebufferDestructionQueue, entry) {
-        device->vkDestroyFramebuffer(device->handle, entry->value, NULL);
-    }
     for (uint32_t i = 0; i < ARRAY_SIZE(renderer->bufferMemoryPages); i++) {
         VKAllocator_Free(device->allocator, renderer->bufferMemoryPages[i]);
     }
@@ -438,17 +445,6 @@ void VKRenderer_Destroy(VKRenderer* renderer) {
     ARRAY_FREE(renderer->pendingPresentation.results);
     J2dRlsTraceLn(J2D_TRACE_INFO, "VKRenderer_Destroy(%p)", renderer);
     free(renderer);
-}
-
-static void VKRenderer_CleanupPendingResources(VKRenderer* renderer) {
-    VKDevice* device = renderer->device;
-    for (;;) {
-        VkFramebuffer framebuffer = VK_NULL_HANDLE;
-        POOL_TAKE(renderer, framebufferDestructionQueue, framebuffer);
-        if (framebuffer == VK_NULL_HANDLE) break;
-        device->vkDestroyFramebuffer(device->handle, framebuffer, NULL);
-        J2dRlsTraceLn(J2D_TRACE_VERBOSE, "VKRenderer_CleanupPendingResources(%p): framebuffer destroyed", renderer);
-    }
 }
 
 /**
@@ -555,73 +551,6 @@ void VKRenderer_Flush(VKRenderer* renderer) {
                   renderer, submitInfo.commandBufferCount, pendingPresentations);
 }
 
-void VKRenderer_DisposePrimaryResources(VKRenderer* renderer) {
-    if (renderer == NULL) return;
-    size_t disposeRecordsCount = ARRAY_SIZE(renderer->disposeRecords);
-    if (disposeRecordsCount == 0) return;
-    VKRenderer_Sync(renderer);
-    for (uint32_t i = 0; i < disposeRecordsCount; i++) {
-        renderer->disposeRecords[i].hnd(renderer->device, renderer->disposeRecords[i].ctx);
-    }
-
-    ARRAY_RESIZE(renderer->disposeRecords, 0);
-}
-
-/**
- * Prepare image barrier info to be executed in batch, if needed.
- */
-void VKRenderer_AddImageBarrier(VkImageMemoryBarrier* barriers, VKBarrierBatch* batch,
-                                VKImage* image, VkPipelineStageFlags stage, VkAccessFlags access, VkImageLayout layout) {
-    assert(barriers != NULL && batch != NULL && image != NULL);
-    // TODO Even if stage, access and layout didn't change, we may still need a barrier against WaW hazard.
-    if (stage != image->lastStage || access != image->lastAccess || layout != image->layout) {
-        barriers[batch->barrierCount] = (VkImageMemoryBarrier) {
-                .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-                .srcAccessMask = image->lastAccess,
-                .dstAccessMask = access,
-                .oldLayout = image->layout,
-                .newLayout = layout,
-                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                .image = image->handle,
-                .subresourceRange = { VKUtil_GetFormatGroup(image->format).aspect, 0, 1, 0, 1 }
-        };
-        batch->barrierCount++;
-        batch->srcStages |= image->lastStage;
-        batch->dstStages |= stage;
-        image->lastStage = stage;
-        image->lastAccess = access;
-        image->layout = layout;
-    }
-}
-
-/**
- * Prepare buffer barrier info to be executed in batch, if needed.
- */
-void VKRenderer_AddBufferBarrier(VkBufferMemoryBarrier* barriers, VKBarrierBatch* batch,
-                                VKBuffer* buffer, VkPipelineStageFlags stage,
-                                VkAccessFlags access)
-{
-    assert(barriers != NULL && batch != NULL && buffer != NULL);
-    if (stage != buffer->lastStage || access != buffer->lastAccess) {
-        barriers[batch->barrierCount] = (VkBufferMemoryBarrier) {
-                .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-                .srcAccessMask = buffer->lastAccess,
-                .dstAccessMask = access,
-                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                .buffer = buffer->handle,
-                .offset = 0,
-                .size = VK_WHOLE_SIZE
-        };
-        batch->barrierCount++;
-        batch->srcStages |= buffer->lastStage;
-        batch->dstStages |= stage;
-        buffer->lastStage = stage;
-        buffer->lastAccess = access;
-    }
-}
-
 /**
  * Get Color RGBA components in a format suitable for the current render pass.
  */
@@ -693,7 +622,6 @@ void VKRenderer_DestroyRenderPass(VKSDOps* surface) {
     if (device != NULL && device->renderer != NULL) {
         // Wait while surface resources are being used by the device.
         VKRenderer_Wait(device->renderer, surface->renderPass->lastTimestamp);
-        VKRenderer_CleanupPendingResources(device->renderer);
         VKRenderer_DiscardRenderPass(surface);
         // Release resources.
         device->vkDestroyFramebuffer(device->handle, surface->renderPass->framebuffer, NULL);
@@ -750,6 +678,11 @@ static VkBool32 VKRenderer_InitRenderPass(VKSDOps* surface) {
     return VK_TRUE;
 }
 
+static void VKRenderer_CleanupFramebuffer(VKDevice* device, void* data) {
+    device->vkDestroyFramebuffer(device->handle, (VkFramebuffer) data, NULL);
+    J2dRlsTraceLn(J2D_TRACE_VERBOSE, "VKRenderer_CleanupFramebuffer(%p)", data);
+}
+
 /**
  * Initialize surface framebuffer.
  * This function can be called between render passes of a single frame, unlike VKRenderer_InitRenderPass.
@@ -761,7 +694,8 @@ static void VKRenderer_InitFramebuffer(VKSDOps* surface) {
 
     if (renderPass->state.stencilMode == STENCIL_MODE_NONE && surface->stencil != NULL) {
         // Queue outdated color-only framebuffer for destruction.
-        POOL_RETURN(device->renderer, framebufferDestructionQueue, renderPass->framebuffer);
+        POOL_RETURN(device->renderer, cleanupQueue,
+            ((VKCleanupEntry) { VKRenderer_CleanupFramebuffer, renderPass->framebuffer }));
         renderPass->framebuffer = VK_NULL_HANDLE;
         renderPass->state.stencilMode = STENCIL_MODE_OFF;
     }
@@ -897,20 +831,17 @@ VkBool32 VKRenderer_FlushRenderPass(VKSDOps* surface) {
     // Insert barriers to prepare surface for rendering.
     VkImageMemoryBarrier barriers[2];
     VKBarrierBatch barrierBatch = {};
-    VKRenderer_AddImageBarrier(barriers, &barrierBatch, surface->image,
-                               VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-                               VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-                               VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    VKImage_AddBarrier(barriers, &barrierBatch, surface->image,
+                       VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                       VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                       VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     if (surface->stencil != NULL) {
-        VKRenderer_AddImageBarrier(barriers, &barrierBatch, surface->stencil,
-                                   VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
-                                   VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-                                   VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+        VKImage_AddBarrier(barriers, &barrierBatch, surface->stencil,
+                           VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+                           VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+                           VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
     }
-    if (barrierBatch.barrierCount > 0) {
-        device->vkCmdPipelineBarrier(cb, barrierBatch.srcStages, barrierBatch.dstStages,
-                                     0, 0, NULL, 0, NULL, barrierBatch.barrierCount, barriers);
-    }
+    VKRenderer_RecordBarriers(renderer, NULL, NULL, barriers, &barrierBatch);
 
     // If there is a pending clear, record it into render pass.
     if (clear) VKRenderer_BeginRenderPass(surface);
@@ -988,10 +919,9 @@ void VKRenderer_FlushSurface(VKSDOps* surface) {
                     .subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }
             }};
             VKBarrierBatch barrierBatch = {1, surface->image->lastStage | VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT};
-            VKRenderer_AddImageBarrier(barriers, &barrierBatch, surface->image, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                                       VK_ACCESS_TRANSFER_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-            device->vkCmdPipelineBarrier(cb, barrierBatch.srcStages, barrierBatch.dstStages,
-                                         0, 0, NULL, 0, NULL, barrierBatch.barrierCount, barriers);
+            VKImage_AddBarrier(barriers, &barrierBatch, surface->image, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                               VK_ACCESS_TRANSFER_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+            VKRenderer_RecordBarriers(renderer, NULL, NULL, barriers, &barrierBatch);
         }
 
         // Do blit.
@@ -1221,8 +1151,22 @@ static void VKRenderer_SetupStencil(const VKRenderingContext* context) {
     renderPass->state.shader = NO_SHADER;
 }
 
-void VKRenderer_DisposeOnPrimaryComplete(VKRenderer* renderer, VKDisposeHandler hnd, void* ctx) {
-    ARRAY_PUSH_BACK(renderer->disposeRecords) = (VKDisposeRecord){hnd, ctx};
+void VKRenderer_CleanupLater(VKRenderer* renderer, VKCleanupHandler handler, void* data) {
+    POOL_RETURN(renderer, cleanupQueue, ((VKCleanupEntry) { handler, data }));
+}
+
+void VKRenderer_RecordBarriers(VKRenderer* renderer,
+                               VkBufferMemoryBarrier* bufferBarriers, VKBarrierBatch* bufferBatch,
+                               VkImageMemoryBarrier* imageBarriers, VKBarrierBatch* imageBatch) {
+    assert(renderer != NULL && renderer->device != NULL);
+    if ((bufferBatch == NULL || bufferBatch->barrierCount == 0) &&
+        (imageBatch == NULL || imageBatch->barrierCount == 0)) return;
+    VkPipelineStageFlags srcStages = (bufferBatch != NULL ? bufferBatch->srcStages : 0) | (imageBatch != NULL ? imageBatch->srcStages : 0);
+    VkPipelineStageFlags dstStages = (bufferBatch != NULL ? bufferBatch->dstStages : 0) | (imageBatch != NULL ? imageBatch->dstStages : 0);
+    renderer->device->vkCmdPipelineBarrier(VKRenderer_Record(renderer), srcStages, dstStages,
+                                           0, 0, NULL,
+                                           bufferBatch != NULL ? bufferBatch->barrierCount : 0, bufferBarriers,
+                                           imageBatch != NULL ? imageBatch->barrierCount : 0, imageBarriers);
 }
 
 /**
