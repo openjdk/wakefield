@@ -63,7 +63,7 @@ RING_BUFFER(struct PoolEntry_ ## NAME { \
 
 /**
  * Insert an item into the pool. It is available for POOL_TAKE immediately.
- * This is usually used for bulk insertion of newly-created resources.
+ * This is usually used for bulk insertion of newly created resources.
  */
 #define POOL_INSERT(RENDERER, NAME, VAR) (RING_BUFFER_PUSH_FRONT((RENDERER)->NAME) = \
     (struct PoolEntry_ ## NAME) { .timestamp = 0ULL, .value = (VAR) })
@@ -89,7 +89,7 @@ typedef struct {
 } VKDisposeRecord;
 
 /**
- * Renderer attached to device.
+ * Renderer attached to the device.
  */
 struct VKRenderer {
     VKDevice*          device;
@@ -107,7 +107,7 @@ struct VKRenderer {
     ARRAY(VKDisposeRecord)  disposeRecords;
 
     /**
-     * Last known timestamp hit by GPU execution. Resources with equal or less timestamp may be safely reused.
+     * Last known timestamp reached by GPU execution. Resources with equal or less timestamp may be safely reused.
      */
     uint64_t readTimestamp;
     /**
@@ -140,7 +140,7 @@ typedef struct {
 } BufferWritingState;
 
 /**
- * Rendering-related info attached to surface.
+ * Rendering-related info attached to the surface.
  */
 struct VKRenderPass {
     VKRenderPassContext* context;
@@ -384,7 +384,7 @@ VKRenderer* VKRenderer_Create(VKDevice* device) {
     renderer->writeTimestamp = 1;
     renderer->device = device;
 
-    J2dRlsTraceLn1(J2D_TRACE_INFO, "VKRenderer_Create: renderer=%p", renderer);
+    J2dRlsTraceLn(J2D_TRACE_INFO, "VKRenderer_Create: renderer=%p", renderer);
     return renderer;
 }
 
@@ -436,7 +436,7 @@ void VKRenderer_Destroy(VKRenderer* renderer) {
     ARRAY_FREE(renderer->pendingPresentation.swapchains);
     ARRAY_FREE(renderer->pendingPresentation.indices);
     ARRAY_FREE(renderer->pendingPresentation.results);
-    J2dRlsTraceLn1(J2D_TRACE_INFO, "VKRenderer_Destroy(%p)", renderer);
+    J2dRlsTraceLn(J2D_TRACE_INFO, "VKRenderer_Destroy(%p)", renderer);
     free(renderer);
 }
 
@@ -447,7 +447,7 @@ static void VKRenderer_CleanupPendingResources(VKRenderer* renderer) {
         POOL_TAKE(renderer, framebufferDestructionQueue, framebuffer);
         if (framebuffer == VK_NULL_HANDLE) break;
         device->vkDestroyFramebuffer(device->handle, framebuffer, NULL);
-        J2dRlsTraceLn1(J2D_TRACE_VERBOSE, "VKRenderer_CleanupPendingResources(%p): framebuffer destroyed", renderer);
+        J2dRlsTraceLn(J2D_TRACE_VERBOSE, "VKRenderer_CleanupPendingResources(%p): framebuffer destroyed", renderer);
     }
 }
 
@@ -482,7 +482,7 @@ VkCommandBuffer VKRenderer_Record(VKRenderer* renderer) {
         return VK_NULL_HANDLE;
     }
     renderer->commandBuffer = commandBuffer;
-    J2dRlsTraceLn1(J2D_TRACE_VERBOSE, "VKRenderer_Record(%p): started", renderer);
+    J2dRlsTraceLn(J2D_TRACE_VERBOSE, "VKRenderer_Record(%p): started", renderer);
     return commandBuffer;
 }
 
@@ -551,8 +551,8 @@ void VKRenderer_Flush(VKRenderer* renderer) {
         ARRAY_RESIZE(renderer->pendingPresentation.swapchains, 0);
         ARRAY_RESIZE(renderer->pendingPresentation.indices, 0);
     }
-    J2dRlsTraceLn3(J2D_TRACE_VERBOSE, "VKRenderer_Flush(%p): buffers=%d, presentations=%d",
-                   renderer, submitInfo.commandBufferCount, pendingPresentations);
+    J2dRlsTraceLn(J2D_TRACE_VERBOSE, "VKRenderer_Flush(%p): buffers=%d, presentations=%d",
+                  renderer, submitInfo.commandBufferCount, pendingPresentations);
 }
 
 void VKRenderer_DisposePrimaryResources(VKRenderer* renderer) {
@@ -623,7 +623,7 @@ void VKRenderer_AddBufferBarrier(VkBufferMemoryBarrier* barriers, VKBarrierBatch
 }
 
 /**
- * Get Color RGBA components in a suitable for the current render pass.
+ * Get Color RGBA components in a format suitable for the current render pass.
  */
 inline RGBA VKRenderer_GetRGBA(VKSDOps* surface, Color color) {
     return VKUtil_GetRGBA(color, surface->renderPass->outAlphaType);
@@ -682,7 +682,7 @@ static void VKRenderer_DiscardRenderPass(VKSDOps* surface) {
         VK_IF_ERROR(surface->device->vkResetCommandBuffer(surface->renderPass->commandBuffer, 0)) VK_UNHANDLED_ERROR();
         surface->renderPass->pendingCommands = VK_FALSE;
         VKRenderer_ResetDrawing(surface);
-        J2dRlsTraceLn1(J2D_TRACE_VERBOSE, "VKRenderer_DiscardRenderPass(%p)", surface);
+        J2dRlsTraceLn(J2D_TRACE_VERBOSE, "VKRenderer_DiscardRenderPass(%p)", surface);
     }
 }
 
@@ -705,7 +705,7 @@ void VKRenderer_DestroyRenderPass(VKSDOps* surface) {
     }
     free(surface->renderPass);
     surface->renderPass = NULL;
-    J2dRlsTraceLn1(J2D_TRACE_VERBOSE, "VKRenderer_DestroyRenderPass(%p)", surface);
+    J2dRlsTraceLn(J2D_TRACE_VERBOSE, "VKRenderer_DestroyRenderPass(%p)", surface);
 }
 
 /**
@@ -746,7 +746,7 @@ static VkBool32 VKRenderer_InitRenderPass(VKSDOps* surface) {
         renderPass->context = VKPipelines_GetRenderPassContext(renderer->pipelineContext, surface->image->format);
     }
 
-    J2dRlsTraceLn1(J2D_TRACE_VERBOSE, "VKRenderer_InitRenderPass(%p)", surface);
+    J2dRlsTraceLn(J2D_TRACE_VERBOSE, "VKRenderer_InitRenderPass(%p)", surface);
     return VK_TRUE;
 }
 
@@ -786,7 +786,7 @@ static void VKRenderer_InitFramebuffer(VKSDOps* surface) {
         VK_IF_ERROR(device->vkCreateFramebuffer(device->handle, &framebufferCreateInfo, NULL,
                                                 &renderPass->framebuffer)) VK_UNHANDLED_ERROR();
 
-        J2dRlsTraceLn1(J2D_TRACE_VERBOSE, "VKRenderer_InitFramebuffer(%p)", surface);
+        J2dRlsTraceLn(J2D_TRACE_VERBOSE, "VKRenderer_InitFramebuffer(%p)", surface);
     }
 }
 
@@ -864,7 +864,7 @@ static void VKRenderer_BeginRenderPass(VKSDOps* surface) {
     device->vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
 
     surface->renderPass->pendingCommands = VK_TRUE;
-    J2dRlsTraceLn1(J2D_TRACE_VERBOSE, "VKRenderer_BeginRenderPass(%p)", surface);
+    J2dRlsTraceLn(J2D_TRACE_VERBOSE, "VKRenderer_BeginRenderPass(%p)", surface);
 }
 
 /**
@@ -936,7 +936,7 @@ VkBool32 VKRenderer_FlushRenderPass(VKSDOps* surface) {
 
     device->vkCmdEndRenderPass(cb);
     VKRenderer_ResetDrawing(surface);
-    J2dRlsTraceLn3(J2D_TRACE_VERBOSE, "VKRenderer_FlushRenderPass(%p): hasCommands=%d, clear=%d", surface, hasCommands, clear);
+    J2dRlsTraceLn(J2D_TRACE_VERBOSE, "VKRenderer_FlushRenderPass(%p): hasCommands=%d, clear=%d", surface, hasCommands, clear);
     return VK_TRUE;
 }
 
@@ -1027,7 +1027,7 @@ void VKRenderer_FlushSurface(VKSDOps* surface) {
         // Add pending presentation request.
         ARRAY_PUSH_BACK(renderer->pendingPresentation.swapchains) = win->swapchain;
         ARRAY_PUSH_BACK(renderer->pendingPresentation.indices) = imageIndex;
-        J2dRlsTraceLn1(J2D_TRACE_VERBOSE, "VKRenderer_FlushSurface(%p): queued for presentation", surface);
+        J2dRlsTraceLn(J2D_TRACE_VERBOSE, "VKRenderer_FlushSurface(%p): queued for presentation", surface);
     }
 }
 
@@ -1042,7 +1042,7 @@ void VKRenderer_ConfigureSurface(VKSDOps* surface, VkExtent2D extent, VKDevice* 
             surface->renderPass->pendingFlush = VK_FALSE;
         } else {
             // New frame has not begun yet, flush.
-            J2dRlsTraceLn1(J2D_TRACE_VERBOSE, "VKRenderer_ConfigureSurface(%p): pending flush", surface);
+            J2dRlsTraceLn(J2D_TRACE_VERBOSE, "VKRenderer_ConfigureSurface(%p): pending flush", surface);
             VKRenderer_FlushSurface(surface);
         }
     }
@@ -1278,7 +1278,7 @@ VkBool32 VKRenderer_Validate(VKShader shader, VkPrimitiveTopology topology, Alph
         }
         // Validate current composite.
         if (oldComposite != context.composite) {
-            J2dTraceLn2(J2D_TRACE_VERBOSE, "VKRenderer_Validate: updating composite, old=%d, new=%d", oldComposite, context.composite);
+            J2dTraceLn(J2D_TRACE_VERBOSE, "VKRenderer_Validate: updating composite, old=%d, new=%d", oldComposite, context.composite);
             // Reset the pipeline.
             renderPass->state.shader = NO_SHADER;
         }
@@ -1291,8 +1291,8 @@ VkBool32 VKRenderer_Validate(VKShader shader, VkPrimitiveTopology topology, Alph
     if (renderPass->state.shader != shader ||
         renderPass->state.topology != topology ||
         renderPass->state.inAlphaType != inAlphaType) {
-        J2dTraceLn2(J2D_TRACE_VERBOSE, "VKRenderer_Validate: updating pipeline, old=%d, new=%d",
-                    renderPass->state.shader, shader);
+        J2dTraceLn(J2D_TRACE_VERBOSE, "VKRenderer_Validate: updating pipeline, old=%d, new=%d",
+                   renderPass->state.shader, shader);
         VKRenderer_FlushDraw(surface);
         VkCommandBuffer cb = renderPass->commandBuffer;
         renderPass->state.shader = shader;

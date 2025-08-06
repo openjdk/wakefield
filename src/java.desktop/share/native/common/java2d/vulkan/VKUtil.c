@@ -332,7 +332,7 @@ JNIEXPORT void VKUtil_LogResultError(const char* string, VkResult result) {
         RESULT(VK_OPERATION_NOT_DEFERRED_KHR);
         default: r = "<UNKNOWN>"; break;
     }
-    J2dRlsTraceLn1(J2D_TRACE_ERROR, string, r)
+    J2dRlsTraceLn(J2D_TRACE_ERROR, string, r);
 }
 
 /**

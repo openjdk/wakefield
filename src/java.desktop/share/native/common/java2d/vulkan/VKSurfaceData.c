@@ -78,7 +78,7 @@ VkBool32 VKSD_ConfigureImageSurface(VKSDOps* vksdo) {
     if (device != vksdo->device) {
         VKSD_ResetImageSurface(vksdo);
         vksdo->device = device;
-        J2dRlsTraceLn1(J2D_TRACE_INFO, "VKSD_ConfigureImageSurface(%p): device updated", vksdo);
+        J2dRlsTraceLn(J2D_TRACE_INFO, "VKSD_ConfigureImageSurface(%p): device updated", vksdo);
     }
     // Initialize image.
     if (vksdo->requestedExtent.width > 0 && vksdo->requestedExtent.height > 0 && (vksdo->image == NULL ||
@@ -96,7 +96,7 @@ VkBool32 VKSD_ConfigureImageSurface(VKSDOps* vksdo) {
         VK_RUNTIME_ASSERT(image);
         VKSD_ResetImageSurface(vksdo);
         vksdo->image = image;
-        J2dRlsTraceLn3(J2D_TRACE_INFO, "VKSD_ConfigureImageSurface(%p): image updated %dx%d", vksdo, image->extent.width, image->extent.height);
+        J2dRlsTraceLn(J2D_TRACE_INFO, "VKSD_ConfigureImageSurface(%p): image updated %dx%d", vksdo, image->extent.width, image->extent.height);
     }
     return vksdo->image != NULL;
 }
@@ -104,7 +104,7 @@ VkBool32 VKSD_ConfigureImageSurface(VKSDOps* vksdo) {
 VkBool32 VKSD_ConfigureImageSurfaceStencil(VKSDOps* vksdo) {
     // Check that image is ready.
     if (vksdo->image == NULL) {
-        J2dRlsTraceLn1(J2D_TRACE_WARNING, "VKSD_ConfigureImageSurfaceStencil(%p): image is not ready", vksdo);
+        J2dRlsTraceLn(J2D_TRACE_WARNING, "VKSD_ConfigureImageSurfaceStencil(%p): image is not ready", vksdo);
         return VK_FALSE;
     }
     // Initialize stencil image.
@@ -114,8 +114,8 @@ VkBool32 VKSD_ConfigureImageSurfaceStencil(VKSDOps* vksdo) {
                                         VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
                                         VK_SAMPLE_COUNT_1_BIT, VKSD_FindImageSurfaceMemoryType);
         VK_RUNTIME_ASSERT(vksdo->stencil);
-        J2dRlsTraceLn3(J2D_TRACE_INFO, "VKSD_ConfigureImageSurfaceStencil(%p): stencil image updated %dx%d",
-                       vksdo, vksdo->stencil->extent.width, vksdo->stencil->extent.height);
+        J2dRlsTraceLn(J2D_TRACE_INFO, "VKSD_ConfigureImageSurfaceStencil(%p): stencil image updated %dx%d",
+                      vksdo, vksdo->stencil->extent.width, vksdo->stencil->extent.height);
     }
     return vksdo->stencil != NULL;
 }
@@ -123,7 +123,7 @@ VkBool32 VKSD_ConfigureImageSurfaceStencil(VKSDOps* vksdo) {
 VkBool32 VKSD_ConfigureWindowSurface(VKWinSDOps* vkwinsdo) {
     // Check that image is ready.
     if (vkwinsdo->vksdOps.image == NULL) {
-        J2dRlsTraceLn1(J2D_TRACE_WARNING, "VKSD_ConfigureWindowSurface(%p): image is not ready", vkwinsdo);
+        J2dRlsTraceLn(J2D_TRACE_WARNING, "VKSD_ConfigureWindowSurface(%p): image is not ready", vkwinsdo);
         return VK_FALSE;
     }
     // Check for changes.
@@ -132,7 +132,7 @@ VkBool32 VKSD_ConfigureWindowSurface(VKWinSDOps* vkwinsdo) {
             vkwinsdo->swapchainExtent.height == vkwinsdo->vksdOps.image->extent.height) return VK_TRUE;
     // Check that surface is ready.
     if (vkwinsdo->surface == VK_NULL_HANDLE) {
-        J2dRlsTraceLn1(J2D_TRACE_WARNING, "VKSD_ConfigureWindowSurface(%p): surface is not ready", vkwinsdo);
+        J2dRlsTraceLn(J2D_TRACE_WARNING, "VKSD_ConfigureWindowSurface(%p): surface is not ready", vkwinsdo);
         return VK_FALSE;
     }
 
@@ -154,10 +154,10 @@ VkBool32 VKSD_ConfigureWindowSurface(VKWinSDOps* vkwinsdo) {
     if ((vkwinsdo->vksdOps.image->extent.width != capabilities.currentExtent.width ||
          vkwinsdo->vksdOps.image->extent.height != capabilities.currentExtent.height) &&
          (capabilities.currentExtent.width != 0xFFFFFFFF || capabilities.currentExtent.height != 0xFFFFFFFF)) {
-        J2dRlsTraceLn5(J2D_TRACE_WARNING,
-                       "VKSD_ConfigureWindowSurface(%p): surface size doesn't match, expected=%dx%d, capabilities.currentExtent=%dx%d",
-                       vkwinsdo, vkwinsdo->vksdOps.image->extent.width, vkwinsdo->vksdOps.image->extent.height,
-                       capabilities.currentExtent.width, capabilities.currentExtent.height);
+        J2dRlsTraceLn(J2D_TRACE_WARNING,
+                      "VKSD_ConfigureWindowSurface(%p): surface size doesn't match, expected=%dx%d, capabilities.currentExtent=%dx%d",
+                      vkwinsdo, vkwinsdo->vksdOps.image->extent.width, vkwinsdo->vksdOps.image->extent.height,
+                      capabilities.currentExtent.width, capabilities.currentExtent.height);
         return VK_FALSE;
     }
 
@@ -165,12 +165,12 @@ VkBool32 VKSD_ConfigureWindowSurface(VKWinSDOps* vkwinsdo) {
         vkwinsdo->vksdOps.image->extent.height < capabilities.minImageExtent.height ||
         vkwinsdo->vksdOps.image->extent.width  > capabilities.maxImageExtent.width  ||
         vkwinsdo->vksdOps.image->extent.height > capabilities.maxImageExtent.height) {
-        J2dRlsTraceLn7(J2D_TRACE_WARNING,
-                       "VKSD_ConfigureWindowSurface(%p): surface size doesn't fit, expected=%dx%d, "
-                       "capabilities.minImageExtent=%dx%d, capabilities.minImageExtent=%dx%d",
-                       vkwinsdo, vkwinsdo->vksdOps.image->extent.width, vkwinsdo->vksdOps.image->extent.height,
-                       capabilities.minImageExtent.width, capabilities.minImageExtent.height,
-                       capabilities.maxImageExtent.width, capabilities.maxImageExtent.height);
+        J2dRlsTraceLn(J2D_TRACE_WARNING,
+                      "VKSD_ConfigureWindowSurface(%p): surface size doesn't fit, expected=%dx%d, "
+                      "capabilities.minImageExtent=%dx%d, capabilities.minImageExtent=%dx%d",
+                      vkwinsdo, vkwinsdo->vksdOps.image->extent.width, vkwinsdo->vksdOps.image->extent.height,
+                      capabilities.minImageExtent.width, capabilities.minImageExtent.height,
+                      capabilities.maxImageExtent.width, capabilities.maxImageExtent.height);
         return VK_FALSE;
     }
 
@@ -196,9 +196,9 @@ VkBool32 VKSD_ConfigureWindowSurface(VKWinSDOps* vkwinsdo) {
     }
 
     VkSurfaceFormatKHR* format = NULL;
-    J2dRlsTraceLn1(J2D_TRACE_INFO, "VKSD_ConfigureWindowSurface(%p): available swapchain formats:", vkwinsdo);
+    J2dRlsTraceLn(J2D_TRACE_INFO, "VKSD_ConfigureWindowSurface(%p): available swapchain formats:", vkwinsdo);
     for (uint32_t i = 0; i < formatCount; i++) {
-        J2dRlsTraceLn2(J2D_TRACE_INFO, "    format=%d, colorSpace=%d", formats[i].format, formats[i].colorSpace);
+        J2dRlsTraceLn(J2D_TRACE_INFO, "    format=%d, colorSpace=%d", formats[i].format, formats[i].colorSpace);
         // We draw with sRGB colors (see VKUtil_DecodeJavaColor()), so we don't want Vulkan to do color space
         // conversions when drawing to surface. We use *_UNORM formats, so that colors are written "as is".
         // With VK_COLOR_SPACE_SRGB_NONLINEAR_KHR these colors will be interpreted by presentation engine as sRGB.
@@ -208,7 +208,7 @@ VkBool32 VKSD_ConfigureWindowSurface(VKWinSDOps* vkwinsdo) {
         }
     }
     if (format == NULL) {
-        J2dRlsTraceLn1(J2D_TRACE_ERROR, "VKSD_ConfigureWindowSurface(%p): no suitable format found", vkwinsdo);
+        J2dRlsTraceLn(J2D_TRACE_ERROR, "VKSD_ConfigureWindowSurface(%p): no suitable format found", vkwinsdo);
         return VK_FALSE;
     }
 
@@ -262,15 +262,15 @@ VkBool32 VKSD_ConfigureWindowSurface(VKWinSDOps* vkwinsdo) {
     VK_IF_ERROR(device->vkCreateSwapchainKHR(device->handle, &createInfoKhr, NULL, &swapchain)) {
         return VK_FALSE;
     }
-    J2dRlsTraceLn5(J2D_TRACE_INFO, "VKSD_ConfigureWindowSurface(%p): swapchain created, format=%d, presentMode=%d, imageCount=%d, compositeAlpha=%d",
-                   vkwinsdo, format->format, presentMode, imageCount, compositeAlpha);
+    J2dRlsTraceLn(J2D_TRACE_INFO, "VKSD_ConfigureWindowSurface(%p): swapchain created, format=%d, presentMode=%d, imageCount=%d, compositeAlpha=%d",
+                  vkwinsdo, format->format, presentMode, imageCount, compositeAlpha);
     vkwinsdo->resizeCallback(vkwinsdo, vkwinsdo->vksdOps.image->extent);
 
     if (vkwinsdo->swapchain != VK_NULL_HANDLE) {
         // Destroy old swapchain.
         // TODO is it possible that old swapchain is still being presented, can we destroy it right now?
         device->vkDestroySwapchainKHR(vkwinsdo->swapchainDevice->handle, vkwinsdo->swapchain, NULL);
-        J2dRlsTraceLn1(J2D_TRACE_INFO, "VKSD_ConfigureWindowSurface(%p): old swapchain destroyed", vkwinsdo);
+        J2dRlsTraceLn(J2D_TRACE_INFO, "VKSD_ConfigureWindowSurface(%p): old swapchain destroyed", vkwinsdo);
     }
     vkwinsdo->swapchain = swapchain;
     vkwinsdo->swapchainDevice = device;
@@ -296,8 +296,8 @@ JNIEXPORT VKSDOps* VKSD_CreateSurface(JNIEnv* env, jobject vksd, jint type, jint
                                       VKWinSD_SurfaceResizeCallback resizeCallback) {
     VKSDOps* sd = (VKSDOps*)SurfaceData_InitOps(env, vksd,
         type == VKSD_WINDOW ? sizeof(VKWinSDOps) : sizeof(VKSDOps));
-    J2dTraceLn3(J2D_TRACE_INFO,
-                "VKSD_CreateSurface(%p): type=%d, format=%d", sd, type, format & ~VKSD_FORMAT_OPAQUE_BIT);
+    J2dTraceLn(J2D_TRACE_INFO,
+               "VKSD_CreateSurface(%p): type=%d, format=%d", sd, type, format & ~VKSD_FORMAT_OPAQUE_BIT);
     if (sd == NULL) {
         JNU_ThrowOutOfMemoryError(env, "Initialization of VKSDOps failed");
         return NULL;
@@ -316,22 +316,22 @@ JNIEXPORT VKSDOps* VKSD_CreateSurface(JNIEnv* env, jobject vksd, jint type, jint
 
 JNIEXPORT void VKSD_InitWindowSurface(JNIEnv* env, jobject vksd, VKWinSD_SurfaceInitCallback initCallback, void* data) {
     VKWinSDOps* sd = (VKWinSDOps*)SurfaceData_GetOps(env, vksd);
-    J2dRlsTraceLn1(J2D_TRACE_INFO, "VKSD_InitWindowSurface(%p)", sd);
+    J2dRlsTraceLn(J2D_TRACE_INFO, "VKSD_InitWindowSurface(%p)", sd);
 
     if (sd == NULL) {
-        J2dRlsTraceLn1(J2D_TRACE_ERROR, "VKSD_InitWindowSurface(%p): VKWinSDOps is NULL", vksd);
+        J2dRlsTraceLn(J2D_TRACE_ERROR, "VKSD_InitWindowSurface(%p): VKWinSDOps is NULL", vksd);
         VK_UNHANDLED_ERROR();
     }
 
     if (sd->surface != VK_NULL_HANDLE) {
         VKSD_ResetSurface(&sd->vksdOps);
-        J2dRlsTraceLn1(J2D_TRACE_INFO, "VKSD_InitWindowSurface(%p): surface reset", vksd);
+        J2dRlsTraceLn(J2D_TRACE_INFO, "VKSD_InitWindowSurface(%p): surface reset", vksd);
     }
 
     initCallback(sd, data);
 
     if (sd->surface != VK_NULL_HANDLE) {
-        J2dRlsTraceLn1(J2D_TRACE_INFO, "VKSD_InitWindowSurface(%p): surface created", vksd);
+        J2dRlsTraceLn(J2D_TRACE_INFO, "VKSD_InitWindowSurface(%p): surface created", vksd);
     }
     // Swapchain will be created later after CONFIGURE_SURFACE.
 }

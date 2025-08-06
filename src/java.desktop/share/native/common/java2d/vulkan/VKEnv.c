@@ -48,15 +48,15 @@ static PFN_vkGetInstanceProcAddr vulkanLibOpen() {
             pVulkanLib = dlopen(VULKAN_1_DLL, RTLD_NOW);
         }
         if (pVulkanLib == NULL) {
-            J2dRlsTraceLn1(J2D_TRACE_ERROR, "Vulkan: Failed to load %s", VULKAN_DLL)
+            J2dRlsTraceLn(J2D_TRACE_ERROR, "Vulkan: Failed to load %s", VULKAN_DLL);
             return NULL;
         }
     }
 
     PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr = dlsym(pVulkanLib, "vkGetInstanceProcAddr");
     if (vkGetInstanceProcAddr == NULL) {
-        J2dRlsTraceLn1(J2D_TRACE_ERROR,
-                     "Vulkan: Failed to get proc address of vkGetInstanceProcAddr from %s", VULKAN_DLL)
+        J2dRlsTraceLn(J2D_TRACE_ERROR,
+                      "Vulkan: Failed to get proc address of vkGetInstanceProcAddr from %s", VULKAN_DLL);
         vulkanLibClose();
         return NULL;
     }
@@ -124,7 +124,7 @@ static VKEnv* VKEnv_Create(PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr, VKPl
     GLOBAL_FUNCTION_TABLE(DECL_PFN)
     GLOBAL_FUNCTION_TABLE(CHECK_PROC_ADDR, missingAPI, vkGetInstanceProcAddr, NULL,)
     if (missingAPI) {
-        J2dRlsTraceLn(J2D_TRACE_ERROR, "Vulkan: Required API is missing:")
+        J2dRlsTraceLn(J2D_TRACE_ERROR, "Vulkan: Required API is missing:");
         GLOBAL_FUNCTION_TABLE(LOG_MISSING_PFN,)
         return NULL;
     }
@@ -132,10 +132,10 @@ static VKEnv* VKEnv_Create(PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr, VKPl
     // Query API version.
     uint32_t apiVersion = 0;
     VK_IF_ERROR(vkEnumerateInstanceVersion(&apiVersion)) return NULL;
-    J2dRlsTraceLn3(J2D_TRACE_INFO, "Vulkan: Available (%d.%d.%d)",
-                 VK_API_VERSION_MAJOR(apiVersion),
-                 VK_API_VERSION_MINOR(apiVersion),
-                 VK_API_VERSION_PATCH(apiVersion))
+    J2dRlsTraceLn(J2D_TRACE_INFO, "Vulkan: Available (%d.%d.%d)",
+                  VK_API_VERSION_MAJOR(apiVersion),
+                  VK_API_VERSION_MINOR(apiVersion),
+                  VK_API_VERSION_PATCH(apiVersion));
 
     // Query supported layers.
     uint32_t layerCount;
@@ -178,7 +178,7 @@ static VKEnv* VKEnv_Create(PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr, VKPl
 
     // Check found errors.
     if (errors != NULL) {
-        J2dRlsTraceLn(J2D_TRACE_ERROR, "    Vulkan is not supported:")
+        J2dRlsTraceLn(J2D_TRACE_ERROR, "    Vulkan is not supported:");
         VKCapabilityUtil_LogErrors(J2D_TRACE_ERROR, errors);
         ARRAY_FREE(errors);
         return NULL;
@@ -207,13 +207,13 @@ static VKEnv* VKEnv_Create(PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr, VKPl
         pNext = &features;
     } else {
         VK_KHR_VALIDATION_LAYER.found = VK_EXT_DEBUG_UTILS_EXTENSION.found = NULL;
-        J2dRlsTraceLn(J2D_TRACE_WARNING, "    Vulkan validation is not supported")
+        J2dRlsTraceLn(J2D_TRACE_WARNING, "    Vulkan validation is not supported");
     }
 #endif
 
     VKEnv* vk = malloc(sizeof(VKEnv));
     if (vk == NULL) {
-        J2dRlsTraceLn(J2D_TRACE_ERROR, "    Cannot allocate VKEnv")
+        J2dRlsTraceLn(J2D_TRACE_ERROR, "    Cannot allocate VKEnv");
         return NULL;
     }
     *vk = (VKEnv) {
@@ -251,14 +251,14 @@ static VKEnv* VKEnv_Create(PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr, VKPl
         VKEnv_Destroy(vk);
         return NULL;
     }
-    J2dRlsTraceLn(J2D_TRACE_INFO, "Vulkan: Instance Created")
+    J2dRlsTraceLn(J2D_TRACE_INFO, "Vulkan: Instance Created");
     ARRAY_FREE(enabledLayers);
     ARRAY_FREE(enabledExtensions);
 
     INSTANCE_FUNCTION_TABLE(CHECK_PROC_ADDR, missingAPI, vkGetInstanceProcAddr, vk->instance, vk->)
     DEBUG_INSTANCE_FUNCTION_TABLE(GET_PROC_ADDR, vkGetInstanceProcAddr, vk->instance, vk->)
     if (missingAPI) {
-        J2dRlsTraceLn(J2D_TRACE_ERROR, "Vulkan: Required API is missing:")
+        J2dRlsTraceLn(J2D_TRACE_ERROR, "Vulkan: Required API is missing:");
         INSTANCE_FUNCTION_TABLE(LOG_MISSING_PFN, vk->)
         VKEnv_Destroy(vk);
         return NULL;
@@ -266,14 +266,14 @@ static VKEnv* VKEnv_Create(PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr, VKPl
     if (presentationSupported) {
         SURFACE_INSTANCE_FUNCTION_TABLE(CHECK_PROC_ADDR, missingAPI, vkGetInstanceProcAddr, vk->instance, vk->)
         if (missingAPI) {
-            J2dRlsTraceLn(J2D_TRACE_ERROR, "Vulkan: Required API is missing:")
+            J2dRlsTraceLn(J2D_TRACE_ERROR, "Vulkan: Required API is missing:");
             SURFACE_INSTANCE_FUNCTION_TABLE(LOG_MISSING_PFN, vk->)
         }
         if (missingAPI || !vk->platformData->initFunctions(vk, vkGetInstanceProcAddr)) {
             vk->presentationSupported = presentationSupported = VK_FALSE;
         }
     }
-    J2dRlsTraceLn1(J2D_TRACE_INFO, "Vulkan: Presentation supported = %s", presentationSupported ? "true" : "false")
+    J2dRlsTraceLn(J2D_TRACE_INFO, "Vulkan: Presentation supported = %s", presentationSupported ? "true" : "false");
 
     vk->composites = VKComposites_Create();
 
@@ -309,12 +309,12 @@ static VkBool32 VKEnv_FindDevices(VKEnv* vk) {
     VkPhysicalDevice physicalDevices[count];
     VK_IF_ERROR(vk->vkEnumeratePhysicalDevices(vk->instance, &count, physicalDevices)) return JNI_FALSE;
     ARRAY_ENSURE_CAPACITY(vk->devices, count);
-    J2dRlsTraceLn1(J2D_TRACE_INFO, "Vulkan: Found %d physical devices:", count)
+    J2dRlsTraceLn(J2D_TRACE_INFO, "Vulkan: Found %d physical devices:", count);
     for (uint32_t i = 0; i < count; i++) {
         VKDevice_CheckAndAdd(vk, physicalDevices[i]);
     }
     if (ARRAY_SIZE(vk->devices) == 0) {
-        J2dRlsTraceLn(J2D_TRACE_ERROR, "Vulkan: No compatible device found")
+        J2dRlsTraceLn(J2D_TRACE_ERROR, "Vulkan: No compatible device found");
         return JNI_FALSE;
     }
     return JNI_TRUE;

@@ -47,29 +47,29 @@ ATexturePoolLockPrivPtr* VKTexturePoolLock_initImpl(void) {
     if (status != 0) {
       return NULL;
     }
-    if (TRACE_LOCK) J2dRlsTraceLn1(J2D_TRACE_VERBOSE, "VKTexturePoolLock_initImpl: lock=%p", l);
+    if (TRACE_LOCK) J2dRlsTraceLn(J2D_TRACE_VERBOSE, "VKTexturePoolLock_initImpl: lock=%p", l);
     return (ATexturePoolLockPrivPtr*)l;
 }
 
 void VKTexturePoolLock_DisposeImpl(ATexturePoolLockPrivPtr *lock) {
     pthread_mutex_t* l = (pthread_mutex_t*)lock;
-    if (TRACE_LOCK) J2dRlsTraceLn1(J2D_TRACE_VERBOSE, "VKTexturePoolLock_DisposeImpl: lock=%p", l);
+    if (TRACE_LOCK) J2dRlsTraceLn(J2D_TRACE_VERBOSE, "VKTexturePoolLock_DisposeImpl: lock=%p", l);
     pthread_mutex_destroy(l);
     free(l);
 }
 
 void VKTexturePoolLock_lockImpl(ATexturePoolLockPrivPtr *lock) {
     pthread_mutex_t* l = (pthread_mutex_t*)lock;
-    if (TRACE_LOCK) J2dRlsTraceLn1(J2D_TRACE_VERBOSE, "VKTexturePoolLock_lockImpl: lock=%p", l);
+    if (TRACE_LOCK) J2dRlsTraceLn(J2D_TRACE_VERBOSE, "VKTexturePoolLock_lockImpl: lock=%p", l);
     pthread_mutex_lock(l);
-    if (TRACE_LOCK) J2dRlsTraceLn1(J2D_TRACE_VERBOSE, "VKTexturePoolLock_lockImpl: lock=%p - locked", l);
+    if (TRACE_LOCK) J2dRlsTraceLn(J2D_TRACE_VERBOSE, "VKTexturePoolLock_lockImpl: lock=%p - locked", l);
 }
 
 void VKTexturePoolLock_unlockImpl(ATexturePoolLockPrivPtr *lock) {
     pthread_mutex_t* l = (pthread_mutex_t*)lock;
-    if (TRACE_LOCK) J2dRlsTraceLn1(J2D_TRACE_VERBOSE, "VKTexturePoolLock_unlockImpl: lock=%p", l);
+    if (TRACE_LOCK) J2dRlsTraceLn(J2D_TRACE_VERBOSE, "VKTexturePoolLock_unlockImpl: lock=%p", l);
     pthread_mutex_unlock(l);
-    if (TRACE_LOCK) J2dRlsTraceLn1(J2D_TRACE_VERBOSE, "VKTexturePoolLock_unlockImpl: lock=%p - unlocked", l);
+    if (TRACE_LOCK) J2dRlsTraceLn(J2D_TRACE_VERBOSE, "VKTexturePoolLock_unlockImpl: lock=%p - unlocked", l);
 }
 
 static void VKTexturePool_FindImageMemoryType(VKMemoryRequirements* requirements) {
@@ -95,15 +95,15 @@ static ATexturePrivPtr* VKTexturePool_createTexture(ADevicePrivPtr *device,
     // usage   = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
     // storage = MTLStorageModeManaged
 
-    if (TRACE_TEX) J2dRlsTraceLn4(J2D_TRACE_VERBOSE, "VKTexturePool_createTexture: created texture: tex=%p, w=%d h=%d, pf=%d",
-                                  texture, width, height, format);
+    if (TRACE_TEX) J2dRlsTraceLn(J2D_TRACE_VERBOSE, "VKTexturePool_createTexture: created texture: tex=%p, w=%d h=%d, pf=%d",
+                                 texture, width, height, format);
     return texture;
 }
 
 static int VKTexturePool_bytesPerPixel(long format) {
     FormatGroup group = VKUtil_GetFormatGroup((VkFormat)format);
     if (group.bytes == 0) {
-        J2dRlsTraceLn1(J2D_TRACE_ERROR, "VKTexturePool_bytesPerPixel: format=%d not supported (4 bytes by default)", format);
+        J2dRlsTraceLn(J2D_TRACE_ERROR, "VKTexturePool_bytesPerPixel: format=%d not supported (4 bytes by default)", format);
         return 4;
     } else return (int) group.bytes;
 }
@@ -112,8 +112,8 @@ static void VKTexturePool_freeTexture(ADevicePrivPtr *device, ATexturePrivPtr *t
     CHECK_NULL(device);
     CHECK_NULL(texture);
     VKImage* tex = (VKImage*)texture;
-    if (TRACE_TEX) J2dRlsTraceLn4(J2D_TRACE_VERBOSE, "VKTexturePool_freeTexture: free texture: tex=%p, w=%d h=%d, pf=%d",
-                                  tex, tex->extent.width, tex->extent.height, tex->format);
+    if (TRACE_TEX) J2dRlsTraceLn(J2D_TRACE_VERBOSE, "VKTexturePool_freeTexture: free texture: tex=%p, w=%d h=%d, pf=%d",
+                                 tex, tex->extent.width, tex->extent.height, tex->format);
 
     VKImage_Destroy((VKDevice*)device, tex);
 }

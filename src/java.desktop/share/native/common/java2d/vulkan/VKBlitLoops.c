@@ -132,8 +132,8 @@ static void VKBlitSwToTextureViaPooledTexture(VKRenderingContext* context,
     VKBuffer* renderVertexBuffer = ARRAY_TO_VERTEX_BUF(device, vertices);
     ARRAY_FREE(vertices);
 
-    J2dTraceLn4(J2D_TRACE_VERBOSE, "replaceTextureRegion src (dw, dh) : [%d, %d] dest (dx1, dy1) =[%d, %d]",
-                (dx2 - dx1), (dy2 - dy1), dx1, dy1);
+    J2dTraceLn(J2D_TRACE_VERBOSE, "replaceTextureRegion src (dw, dh) : [%d, %d] dest (dx1, dy1) =[%d, %d]",
+               (dx2 - dx1), (dy2 - dy1), dx1, dy1);
     VKBuffer *buffer =
             VKBuffer_CreateFromRaster(device, (VKBuffer_RasterInfo){
                 .data = srcInfo->rasBase,
@@ -273,36 +273,36 @@ static jboolean clipDestCoords(
         dcy2 = maxY;
 
     if (dcx1 >= dcx2) {
-        J2dTraceLn2(J2D_TRACE_ERROR, "\tclipDestCoords: dcx1=%1.2f, dcx2=%1.2f", dcx1, dcx2);
+        J2dTraceLn(J2D_TRACE_ERROR, "\tclipDestCoords: dcx1=%1.2f, dcx2=%1.2f", dcx1, dcx2);
         dcx1 = dcx2;
     }
     if (dcy1 >= dcy2) {
-        J2dTraceLn2(J2D_TRACE_ERROR, "\tclipDestCoords: dcy1=%1.2f, dcy2=%1.2f", dcy1, dcy2);
+        J2dTraceLn(J2D_TRACE_ERROR, "\tclipDestCoords: dcy1=%1.2f, dcy2=%1.2f", dcy1, dcy2);
         dcy1 = dcy2;
     }
     if (*dx2 <= dcx1 || *dx1 >= dcx2 || *dy2 <= dcy1 || *dy1 >= dcy2) {
         J2dTraceLn(J2D_TRACE_INFO, "\tclipDestCoords: dest rect doesn't intersect clip area");
-        J2dTraceLn4(J2D_TRACE_INFO, "\tdx2=%1.4f <= dcx1=%1.4f || *dx1=%1.4f >= dcx2=%1.4f", *dx2, dcx1, *dx1, dcx2);
-        J2dTraceLn4(J2D_TRACE_INFO, "\t*dy2=%1.4f <= dcy1=%1.4f || *dy1=%1.4f >= dcy2=%1.4f", *dy2, dcy1, *dy1, dcy2);
+        J2dTraceLn(J2D_TRACE_INFO, "\tdx2=%1.4f <= dcx1=%1.4f || *dx1=%1.4f >= dcx2=%1.4f", *dx2, dcx1, *dx1, dcx2);
+        J2dTraceLn(J2D_TRACE_INFO, "\t*dy2=%1.4f <= dcy1=%1.4f || *dy1=%1.4f >= dcy2=%1.4f", *dy2, dcy1, *dy1, dcy2);
         return JNI_FALSE;
     }
     if (*dx1 < dcx1) {
-        J2dTraceLn3(J2D_TRACE_VERBOSE, "\t\tdx1=%1.2f, will be clipped to %1.2f | sx1+=%d", *dx1, dcx1, (jint)((dcx1 - *dx1) * (sw/dw)));
+        J2dTraceLn(J2D_TRACE_VERBOSE, "\t\tdx1=%1.2f, will be clipped to %1.2f | sx1+=%d", *dx1, dcx1, (jint)((dcx1 - *dx1) * (sw/dw)));
         *sx1 += (jint)((dcx1 - *dx1) * (sw/dw));
         *dx1 = dcx1;
     }
     if (*dx2 > dcx2) {
-        J2dTraceLn3(J2D_TRACE_VERBOSE, "\t\tdx2=%1.2f, will be clipped to %1.2f | sx2-=%d", *dx2, dcx2, (jint)((*dx2 - dcx2) * (sw/dw)));
+        J2dTraceLn(J2D_TRACE_VERBOSE, "\t\tdx2=%1.2f, will be clipped to %1.2f | sx2-=%d", *dx2, dcx2, (jint)((*dx2 - dcx2) * (sw/dw)));
         *sx2 -= (jint)((*dx2 - dcx2) * (sw/dw));
         *dx2 = dcx2;
     }
     if (*dy1 < dcy1) {
-        J2dTraceLn3(J2D_TRACE_VERBOSE, "\t\tdy1=%1.2f, will be clipped to %1.2f | sy1+=%d", *dy1, dcy1, (jint)((dcy1 - *dy1) * (sh/dh)));
+        J2dTraceLn(J2D_TRACE_VERBOSE, "\t\tdy1=%1.2f, will be clipped to %1.2f | sy1+=%d", *dy1, dcy1, (jint)((dcy1 - *dy1) * (sh/dh)));
         *sy1 += (jint)((dcy1 - *dy1) * (sh/dh));
         *dy1 = dcy1;
     }
     if (*dy2 > dcy2) {
-        J2dTraceLn3(J2D_TRACE_VERBOSE, "\t\tdy2=%1.2f, will be clipped to %1.2f | sy2-=%d", *dy2, dcy2, (jint)((*dy2 - dcy2) * (sh/dh)));
+        J2dTraceLn(J2D_TRACE_VERBOSE, "\t\tdy2=%1.2f, will be clipped to %1.2f | sy2-=%d", *dy2, dcy2, (jint)((*dy2 - dcy2) * (sh/dh)));
         *sy2 -= (jint)((*dy2 - dcy2) * (sh/dh));
         *dy2 = dcy2;
     }
@@ -313,21 +313,21 @@ void VKBlitLoops_IsoBlit(JNIEnv *env, jlong pSrcOps, jboolean xform, jint hint,
                          jint sx1, jint sy1, jint sx2, jint sy2,
                          jdouble dx1, jdouble dy1, jdouble dx2, jdouble dy2)
 {
-    J2dRlsTraceLn8(J2D_TRACE_VERBOSE, "VKBlitLoops_IsoBlit: (%d %d %d %d) -> (%f %f %f %f) ",
+    J2dRlsTraceLn(J2D_TRACE_VERBOSE, "VKBlitLoops_IsoBlit: (%d %d %d %d) -> (%f %f %f %f) ",
                                    sx1, sy1, sx2, sy2, dx1, dy1, dx2, dy2);
-    J2dRlsTraceLn1(J2D_TRACE_VERBOSE, "VKBlitLoops_IsoBlit: xform=%d", xform)
+    J2dRlsTraceLn(J2D_TRACE_VERBOSE, "VKBlitLoops_IsoBlit: xform=%d", xform);
 
     VKSDOps *srcOps = (VKSDOps *)jlong_to_ptr(pSrcOps);
 
     if (srcOps == NULL) {
-        J2dRlsTraceLn1(J2D_TRACE_ERROR,
-                       "VKBlitLoops_IsoBlit: srcOps(%p) is null", srcOps)
+        J2dRlsTraceLn(J2D_TRACE_ERROR,
+                      "VKBlitLoops_IsoBlit: srcOps(%p) is null", srcOps);
         return;
     }
 
     VKRenderingContext* context = VKRenderer_GetContext();
     if (srcOps == context->surface) {
-        J2dRlsTraceLn1(J2D_TRACE_ERROR, "VKBlitLoops_IsoBlit: surface blit into itself (%p)", srcOps)
+        J2dRlsTraceLn(J2D_TRACE_ERROR, "VKBlitLoops_IsoBlit: surface blit into itself (%p)", srcOps);
         return;
     }
 
@@ -402,16 +402,16 @@ void VKBlitLoops_Blit(JNIEnv *env,
                       jdouble dx1, jdouble dy1,
                       jdouble dx2, jdouble dy2)
 {
-    J2dRlsTraceLn8(J2D_TRACE_VERBOSE, "VKRenderQueue_flushBuffer: BLIT_Blit (%d %d %d %d) -> (%f %f %f %f) ",
-                                   sx1, sy1, sx2, sy2, dx1, dy1, dx2, dy2)
-    J2dRlsTraceLn2(J2D_TRACE_VERBOSE, "VKRenderQueue_flushBuffer: BLIT_Blit xform=%d srctype=%d", xform, srctype)
+    J2dRlsTraceLn(J2D_TRACE_VERBOSE, "VKRenderQueue_flushBuffer: BLIT_Blit (%d %d %d %d) -> (%f %f %f %f) ",
+                  sx1, sy1, sx2, sy2, dx1, dy1, dx2, dy2);
+    J2dRlsTraceLn(J2D_TRACE_VERBOSE, "VKRenderQueue_flushBuffer: BLIT_Blit xform=%d srctype=%d", xform, srctype);
 
     SurfaceDataOps *srcOps = (SurfaceDataOps *)jlong_to_ptr(pSrcOps);
 
 
     if (srcOps == NULL) {
-        J2dRlsTraceLn1(J2D_TRACE_ERROR, "VKBlitLoops_Blit: srcOps(%p) is null",
-                       srcOps)
+        J2dRlsTraceLn(J2D_TRACE_ERROR, "VKBlitLoops_Blit: srcOps(%p) is null",
+                      srcOps);
         return;
     }
 
@@ -500,8 +500,8 @@ VKBlitLoops_SurfaceToSwBlit(JNIEnv *env,
     SurfaceDataOps *dstOps = (SurfaceDataOps *)jlong_to_ptr(pDstOps);
     SurfaceDataRasInfo srcInfo, dstInfo;
 
-    J2dTraceLn8(J2D_TRACE_INFO, "VKBlitLoops_SurfaceToSwBlit: (%p) (%d %d %d %d) -> (%p) (%d %d)",
-                srcOps, srcx, srcy, width, height, dstOps, dstx, dsty);
+    J2dTraceLn(J2D_TRACE_INFO, "VKBlitLoops_SurfaceToSwBlit: (%p) (%d %d %d %d) -> (%p) (%d %d)",
+               srcOps, srcx, srcy, width, height, dstOps, dstx, dsty);
 
     if (width <= 0 || height <= 0) {
         J2dTraceLn(J2D_TRACE_WARNING,
@@ -516,8 +516,8 @@ VKBlitLoops_SurfaceToSwBlit(JNIEnv *env,
     VKImage* image = srcOps->image;
 
     if (image == NULL || device == NULL) {
-        J2dRlsTraceLn2(J2D_TRACE_ERROR,
-                       "VKBlitLoops_SurfaceToSwBlit: image(%p) or device(%p) is NULL", image, device)
+        J2dRlsTraceLn(J2D_TRACE_ERROR,
+                      "VKBlitLoops_SurfaceToSwBlit: image(%p) or device(%p) is NULL", image, device);
         return;
     }
 

@@ -132,8 +132,8 @@ void VKImage_LoadBuffer(VKDevice* device, VKImage* image, VKBuffer* buffer,
                     .depth = 1
             }
     };
-    J2dRlsTraceLn4(J2D_TRACE_VERBOSE, "VKImage_LoadBuffer(device=%p, commandBuffer=%p, buffer=%p, image=%p)",
-                   device, cb, buffer->handle, image->handle);
+    J2dRlsTraceLn(J2D_TRACE_VERBOSE, "VKImage_LoadBuffer(device=%p, commandBuffer=%p, buffer=%p, image=%p)",
+                  device, cb, buffer->handle, image->handle);
     device->vkCmdCopyBufferToImage(cb, buffer->handle, image->handle,
                                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                                           1, &region);

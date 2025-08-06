@@ -41,19 +41,19 @@ typedef struct VKNamedEntry {
     if (NAME.name != NULL) (LIST) = &(NAME)
 
 static void VKNamedEntry_LogAll(pchar what, pchar all, uint32_t count, size_t stride) {
-    J2dRlsTraceLn1(J2D_TRACE_VERBOSE, "    Supported %s:", what)
+    J2dRlsTraceLn(J2D_TRACE_VERBOSE, "    Supported %s:", what);
     for (uint32_t i = 0; i < count; i++) {
         if (i == 0) J2dRlsTrace(J2D_TRACE_VERBOSE, "            ")
         else J2dRlsTrace(J2D_TRACE_VERBOSE, ", ")
-        J2dRlsTrace(J2D_TRACE_VERBOSE, all)
+        J2dRlsTrace(J2D_TRACE_VERBOSE, all);
         all += stride;
     }
-    J2dRlsTrace(J2D_TRACE_VERBOSE, "\n")
+    J2dRlsTrace(J2D_TRACE_VERBOSE, "\n");
 }
 
 static void VKNamedEntry_LogFound(const VKNamedEntry* list) {
     for (; list != NULL; list = list->next) {
-        J2dRlsTraceLn2(J2D_TRACE_INFO, "    %s = %s", list->name, list->found ? "true" : "false")
+        J2dRlsTraceLn(J2D_TRACE_INFO, "    %s = %s", list->name, list->found ? "true" : "false");
     }
 }
 
@@ -80,7 +80,7 @@ static ARRAY(pchar) VKNamedEntry_CollectNames(const VKNamedEntry* list) {
 
 static void VKCapabilityUtil_LogErrors(int level, ARRAY(pchar) errors) {
     for (uint32_t i = 0; i < ARRAY_SIZE(errors); i++) {
-        J2dRlsTraceLn1(level, "        %s", errors[i])
+        J2dRlsTraceLn(level, "        %s", errors[i]);
     }
 }
 

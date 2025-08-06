@@ -49,7 +49,6 @@
         }                                       \
     } while(0)                                  \
 
-#define JNU_RUNTIME_ASSERT(a, b, c)
 
 struct gtk_shell1;
 

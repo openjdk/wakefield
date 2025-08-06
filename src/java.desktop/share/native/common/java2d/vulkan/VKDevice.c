@@ -65,9 +65,9 @@ static VkBool32 VKDevice_CheckAndAddFormat(VKEnv* vk, VkPhysicalDevice physicalD
                                                           VK_FORMAT_FEATURE_TRANSFER_SRC_BIT;
         if ((formatProperties.optimalTilingFeatures & ATTACHMENT_FLAGS) == ATTACHMENT_FLAGS) {
             // Our format is supported as a drawing destination.
-            J2dRlsTraceLn1(J2D_TRACE_INFO, "        %s (attachment)", name)
+            J2dRlsTraceLn(J2D_TRACE_INFO, "        %s (attachment)", name);
             ARRAY_PUSH_BACK(*supportedFormats) = (jint) format;
-        } else J2dRlsTraceLn1(J2D_TRACE_INFO, "        %s (sampled)", name)
+        } else J2dRlsTraceLn(J2D_TRACE_INFO, "        %s (sampled)", name);
         return VK_TRUE;
     }
     return VK_FALSE;
@@ -102,12 +102,12 @@ void VKDevice_CheckAndAdd(VKEnv* vk, VkPhysicalDevice physicalDevice) {
     // Check API version.
     ARRAY(pchar) errors = NULL;
     jint caps = 0;
-    J2dRlsTraceLn5(J2D_TRACE_INFO, "%s (%d.%d.%d, %s)",
-                 (const char *) deviceProperties2.properties.deviceName,
-                 VK_API_VERSION_MAJOR(deviceProperties2.properties.apiVersion),
-                 VK_API_VERSION_MINOR(deviceProperties2.properties.apiVersion),
-                 VK_API_VERSION_PATCH(deviceProperties2.properties.apiVersion),
-                 physicalDeviceTypeString(deviceProperties2.properties.deviceType))
+    J2dRlsTraceLn(J2D_TRACE_INFO, "%s (%d.%d.%d, %s)",
+                  (const char *) deviceProperties2.properties.deviceName,
+                  VK_API_VERSION_MAJOR(deviceProperties2.properties.apiVersion),
+                  VK_API_VERSION_MINOR(deviceProperties2.properties.apiVersion),
+                  VK_API_VERSION_PATCH(deviceProperties2.properties.apiVersion),
+                  physicalDeviceTypeString(deviceProperties2.properties.deviceType));
     if (deviceProperties2.properties.apiVersion < REQUIRED_VULKAN_VERSION) {
         ARRAY_PUSH_BACK(errors) = "Unsupported API version";
     }
@@ -147,7 +147,7 @@ void VKDevice_CheckAndAdd(VKEnv* vk, VkPhysicalDevice physicalDevice) {
                 presentationSupported ? 'P' : '-'
 
         };
-        J2dRlsTraceLn3(J2D_TRACE_INFO, "    %d queues in family (%.*s)", queueFamilies[j].queueCount, 5, logFlags)
+        J2dRlsTraceLn(J2D_TRACE_INFO, "    %d queues in family (%.*s)", queueFamilies[j].queueCount, 5, logFlags);
 
         // TODO use compute workloads? Separate transfer-only DMA queue?
         if (queueFamilies[j].queueFlags & VK_QUEUE_GRAPHICS_BIT) { // Queue supports graphics operations.
@@ -167,17 +167,17 @@ void VKDevice_CheckAndAdd(VKEnv* vk, VkPhysicalDevice physicalDevice) {
     VKNamedEntry_LogFound(layers);
     VKNamedEntry_LogFound(extensions);
 
-    J2dRlsTraceLn1(J2D_TRACE_INFO, "    presentable = %s", (caps & CAP_PRESENTABLE_BIT) ? "true" : "false")
+    J2dRlsTraceLn(J2D_TRACE_INFO, "    presentable = %s", (caps & CAP_PRESENTABLE_BIT) ? "true" : "false");
     if (!(caps & CAP_PRESENTABLE_BIT)) VK_KHR_SWAPCHAIN_EXTENSION.found = NULL;
 
-    J2dRlsTraceLn1(J2D_TRACE_INFO, "    logicOp = %s", deviceFeatures2.features.logicOp ? "true" : "false")
+    J2dRlsTraceLn(J2D_TRACE_INFO, "    logicOp = %s", deviceFeatures2.features.logicOp ? "true" : "false");
     if (deviceFeatures2.features.logicOp) caps |= sun_java2d_vulkan_VKGPU_CAP_LOGIC_OP_BIT;
 
-    J2dRlsTraceLn1(J2D_TRACE_INFO, "    timelineSemaphore = %s", device12Features.timelineSemaphore ? "true" : "false")
+    J2dRlsTraceLn(J2D_TRACE_INFO, "    timelineSemaphore = %s", device12Features.timelineSemaphore ? "true" : "false");
     if (!device12Features.timelineSemaphore) ARRAY_PUSH_BACK(errors) = "timelineSemaphore not supported";
 
     // Query supported formats.
-    J2dRlsTraceLn(J2D_TRACE_INFO, "    Supported device formats:")
+    J2dRlsTraceLn(J2D_TRACE_INFO, "    Supported device formats:");
     VKSampledSrcTypes sampledSrcTypes = {{}};
     VKSampledSrcType* SRCTYPE_4BYTE = &sampledSrcTypes.table[sun_java2d_vulkan_VKSwToSurfaceBlit_SRCTYPE_4BYTE];
     VKSampledSrcType* SRCTYPE_3BYTE = &sampledSrcTypes.table[sun_java2d_vulkan_VKSwToSurfaceBlit_SRCTYPE_3BYTE];
@@ -233,13 +233,13 @@ void VKDevice_CheckAndAdd(VKEnv* vk, VkPhysicalDevice physicalDevice) {
         VkFormatProperties formatProperties;
         vk->vkGetPhysicalDeviceFormatProperties(physicalDevice, VK_FORMAT_S8_UINT, &formatProperties);
         if ((formatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) != 0) {
-            J2dRlsTraceLn1(J2D_TRACE_INFO, "        %s", "VK_FORMAT_S8_UINT (stencil)")
+            J2dRlsTraceLn(J2D_TRACE_INFO, "        %s", "VK_FORMAT_S8_UINT (stencil)");
         } else ARRAY_PUSH_BACK(errors) = "VK_FORMAT_S8_UINT not supported";
     }
 
     // Check found errors.
     if (errors != NULL) {
-        J2dRlsTraceLn(J2D_TRACE_WARNING, "    Device is not supported:")
+        J2dRlsTraceLn(J2D_TRACE_WARNING, "    Device is not supported:");
         VKCapabilityUtil_LogErrors(J2D_TRACE_WARNING, errors);
         ARRAY_FREE(errors);
         return;
@@ -248,7 +248,7 @@ void VKDevice_CheckAndAdd(VKEnv* vk, VkPhysicalDevice physicalDevice) {
     // Copy device name.
     char* deviceName = strdup(deviceProperties2.properties.deviceName);
     if (deviceName == NULL) {
-        J2dRlsTraceLn(J2D_TRACE_ERROR, "    Cannot duplicate deviceName")
+        J2dRlsTraceLn(J2D_TRACE_ERROR, "    Cannot duplicate deviceName");
         ARRAY_FREE(supportedFormats);
         return;
     }
@@ -276,7 +276,7 @@ void VKDevice_Reset(VKDevice* device) {
     ARRAY_FREE(device->enabledExtensions);
     ARRAY_FREE(device->enabledLayers);
     ARRAY_FREE(device->supportedFormats);
-    J2dRlsTraceLn1(J2D_TRACE_INFO, "VKDevice_Reset(%s)", device->name);
+    J2dRlsTraceLn(J2D_TRACE_INFO, "VKDevice_Reset(%s)", device->name);
     free(device->name);
     if (device->vkDestroyDevice != NULL) {
         device->vkDestroyDevice(device->handle, NULL);
@@ -345,8 +345,9 @@ Java_sun_java2d_vulkan_VKGPU_init(JNIEnv *env, jclass jClass, jlong jDevice) {
         JNU_ThrowByName(env, "java/lang/RuntimeException", "Cannot create device");
         return;
     }
-    J2dRlsTraceLn1(J2D_TRACE_INFO, "VKDevice_init(%s)", device->name);
+    J2dRlsTraceLn(J2D_TRACE_INFO, "VKDevice_init(%s)", device->name);
 
+    // Init function tables.
     VkBool32 missingAPI = JNI_FALSE;
     DEVICE_FUNCTION_TABLE(CHECK_PROC_ADDR, missingAPI, vk->vkGetDeviceProcAddr, device->handle, device->)
     if (device->caps & CAP_PRESENTABLE_BIT) {

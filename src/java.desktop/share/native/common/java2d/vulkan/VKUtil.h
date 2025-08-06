@@ -59,7 +59,8 @@ inline VkBool32 VKUtil_CheckError(VkResult result, const char* errorMessage) {
 #define VK_FATAL_ERROR(MESSAGE) do {                              \
     J2dRlsTraceLn(J2D_TRACE_ERROR, MESSAGE "\n    at " LOCATION); \
     JNIEnv* env = (JNIEnv*)JNU_GetEnv(jvm, JNI_VERSION_1_2);      \
-    abort();                                                      \
+    if (env != NULL) JNU_RUNTIME_ASSERT(env, 0, (MESSAGE));       \
+    else abort();                                                 \
 } while(0)
 #define VK_UNHANDLED_ERROR() VK_FATAL_ERROR("Unhandled Vulkan error")
 #define VK_RUNTIME_ASSERT(...) if (!(__VA_ARGS__)) VK_FATAL_ERROR("Vulkan assertion failed: " #__VA_ARGS__)
@@ -146,11 +147,11 @@ void VKUtil_ConcatenateTransform(VKTransform* dst, const VKTransform* src);
  * provided value is NULL.  (The strange else clause is included below to
  * allow for a trailing ';' after RETURN/CONTINUE_IF_NULL() invocations.)
  */
-#define ACT_IF_NULL(ACTION, value)         \
-    if ((value) == NULL) {                 \
-        J2dTraceLn1(J2D_TRACE_ERROR,       \
-                    "%s is null", #value); \
-        ACTION;                            \
+#define ACT_IF_NULL(ACTION, value)        \
+    if ((value) == NULL) {                \
+        J2dTraceLn(J2D_TRACE_ERROR,       \
+                   "%s is null", #value); \
+        ACTION;                           \
     } else do { } while (0)
 #define RETURN_IF_NULL(value)   ACT_IF_NULL(return, value)
 #define CONTINUE_IF_NULL(value) ACT_IF_NULL(continue, value)

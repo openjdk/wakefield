@@ -291,7 +291,7 @@ static VKPipelineInfo VKPipelines_CreatePipelines(VKRenderPassContext* renderPas
             VK_FATAL_ERROR("Cannot create pipeline, unknown shader requested!");
         }
         assert(createInfos[i].pDynamicState->dynamicStateCount <= MAX_DYNAMIC_STATES);
-        J2dRlsTraceLn5(J2D_TRACE_INFO, "VKPipelines_CreatePipelines: stencilMode=%d, dstOpaque=%d, composite=%d, shader=%d, topology=%d",
+        J2dRlsTraceLn(J2D_TRACE_INFO, "VKPipelines_CreatePipelines: stencilMode=%d, dstOpaque=%d, composite=%d, shader=%d, topology=%d",
                 descriptors[i].stencilMode, descriptors[i].dstOpaque, descriptors[i].composite, descriptors[i].shader, descriptors[i].topology);
     }
 
@@ -300,7 +300,7 @@ static VKPipelineInfo VKPipelines_CreatePipelines(VKRenderPassContext* renderPas
     VkPipeline pipelines[count];
     VK_IF_ERROR(device->vkCreateGraphicsPipelines(device->handle, VK_NULL_HANDLE, count,
                                                   createInfos, NULL, pipelines)) VK_UNHANDLED_ERROR();
-    J2dRlsTraceLn1(J2D_TRACE_INFO, "VKPipelines_CreatePipelines: created %d pipelines", count);
+    J2dRlsTraceLn(J2D_TRACE_INFO, "VKPipelines_CreatePipelines: created %d pipelines", count);
     for (uint32_t i = 0; i < count; i++) {
         pipelineInfos[i].pipeline = pipelines[i];
         MAP_AT(renderPassContext->pipelines, descriptors[i]) = pipelineInfos[i];
@@ -374,8 +374,8 @@ static void VKPipelines_DestroyRenderPassContext(VKRenderPassContext* renderPass
     for (uint32_t i = 0; i < 2; i++) {
         device->vkDestroyRenderPass(device->handle, renderPassContext->renderPass[i], NULL);
     }
-    J2dRlsTraceLn2(J2D_TRACE_INFO, "VKPipelines_DestroyRenderPassContext(%p): format=%d",
-                   renderPassContext, renderPassContext->format);
+    J2dRlsTraceLn(J2D_TRACE_INFO, "VKPipelines_DestroyRenderPassContext(%p): format=%d",
+                  renderPassContext, renderPassContext->format);
     free(renderPassContext);
 }
 
@@ -395,7 +395,7 @@ static VKRenderPassContext* VKPipelines_CreateRenderPassContext(VKPipelineContex
 
     // TODO create few common pipelines in advance? Like default shaders for SRC_OVER composite.
 
-    J2dRlsTraceLn2(J2D_TRACE_INFO, "VKPipelines_CreateRenderPassContext(%p): format=%d", renderPassContext, format);
+    J2dRlsTraceLn(J2D_TRACE_INFO, "VKPipelines_CreateRenderPassContext(%p): format=%d", renderPassContext, format);
     return renderPassContext;
 }
 
@@ -488,7 +488,7 @@ VKPipelineContext* VKPipelines_CreateContext(VKDevice* device) {
         return NULL;
     }
 
-    J2dRlsTraceLn1(J2D_TRACE_INFO, "VKPipelines_CreateContext(%p)", pipelineContext);
+    J2dRlsTraceLn(J2D_TRACE_INFO, "VKPipelines_CreateContext(%p)", pipelineContext);
     return pipelineContext;
 }
 
@@ -512,7 +512,7 @@ void VKPipelines_DestroyContext(VKPipelineContext* pipelineContext) {
 
     VKSamplers_Destroy(device, pipelineContext->samplers);
 
-    J2dRlsTraceLn1(J2D_TRACE_INFO, "VKPipelines_DestroyContext(%p)", pipelineContext);
+    J2dRlsTraceLn(J2D_TRACE_INFO, "VKPipelines_DestroyContext(%p)", pipelineContext);
     free(pipelineContext);
 }
 
@@ -528,8 +528,6 @@ VKRenderPassContext* VKPipelines_GetRenderPassContext(VKPipelineContext* pipelin
     ARRAY_PUSH_BACK(pipelineContext->renderPassContexts) = renderPassContext;
     return renderPassContext;
 }
-
-// static VKPipelineInfo VKPipelines_
 
 VKPipelineInfo VKPipelines_GetPipelineInfo(VKRenderPassContext* renderPassContext, VKPipelineDescriptor descriptor) {
     assert(renderPassContext != NULL);

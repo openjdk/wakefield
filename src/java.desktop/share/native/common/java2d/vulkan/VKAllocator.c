@@ -196,7 +196,7 @@ static uint32_t VKAllocator_AllocatePage(VKAllocator* alloc, uint32_t memoryType
     uint32_t heapIndex = alloc->memoryProperties.memoryTypes[memoryType].heapIndex;
     VkDeviceSize heapSize = alloc->memoryProperties.memoryHeaps[heapIndex].size;
     if (size > heapSize) {
-        J2dRlsTraceLn3(J2D_TRACE_ERROR, "VKAllocator_AllocatePage: not enough memory in heap, heapIndex=%d, heapSize=%d, size=%d", heapIndex, heapSize, size);
+        J2dRlsTraceLn(J2D_TRACE_ERROR, "VKAllocator_AllocatePage: not enough memory in heap, heapIndex=%d, heapSize=%d, size=%d", heapIndex, heapSize, size);
         return NO_PAGE_INDEX;
     }
 
@@ -216,7 +216,7 @@ static uint32_t VKAllocator_AllocatePage(VKAllocator* alloc, uint32_t memoryType
     };
     VkDeviceMemory memory;
     VK_IF_ERROR(device->vkAllocateMemory(device->handle, &allocateInfo, NULL, &memory)) {
-        J2dRlsTraceLn3(J2D_TRACE_ERROR, "VKAllocator_AllocatePage: FAILED memoryType=%d, size=%d, dedicated=%d", memoryType, size, dedicated);
+        J2dRlsTraceLn(J2D_TRACE_ERROR, "VKAllocator_AllocatePage: FAILED memoryType=%d, size=%d, dedicated=%d", memoryType, size, dedicated);
         return NO_PAGE_INDEX;
     }
 
@@ -236,12 +236,12 @@ static uint32_t VKAllocator_AllocatePage(VKAllocator* alloc, uint32_t memoryType
     assert(page->memory == VK_NULL_HANDLE);
     *page = (Page) { .memory = memory };
 
-    J2dRlsTraceLn4(J2D_TRACE_INFO, "VKAllocator_AllocatePage: #%d memoryType=%d, size=%d, dedicated=%d", index, memoryType, size, dedicated);
+    J2dRlsTraceLn(J2D_TRACE_INFO, "VKAllocator_AllocatePage: #%d memoryType=%d, size=%d, dedicated=%d", index, memoryType, size, dedicated);
 #ifdef DEBUG
     page->debugPageSize = size;
     page->debugMemoryType = memoryType;
     alloc->pools[memoryType].debugTotalPagesSize += size;
-    J2dTraceLn2(J2D_TRACE_INFO, "VKAllocator_AllocatePage: memoryType=%d, debugTotalPagesSize=%d", memoryType, alloc->pools[memoryType].debugTotalPagesSize);
+    J2dTraceLn(J2D_TRACE_INFO, "VKAllocator_AllocatePage: memoryType=%d, debugTotalPagesSize=%d", memoryType, alloc->pools[memoryType].debugTotalPagesSize);
 #endif
     return index;
 }
@@ -253,11 +253,11 @@ static void VKAllocator_FreePage(VKAllocator* alloc, Page* page, uint32_t pageIn
     page->memory = VK_NULL_HANDLE;
     page->nextFreePage = alloc->freePageIndex;
     alloc->freePageIndex = pageIndex;
-    J2dRlsTraceLn1(J2D_TRACE_INFO, "VKAllocator_FreePage: #%d", pageIndex);
+    J2dRlsTraceLn(J2D_TRACE_INFO, "VKAllocator_FreePage: #%d", pageIndex);
 #ifdef DEBUG
     alloc->pools[page->debugMemoryType].debugTotalPagesSize -= page->debugPageSize;
-    J2dTraceLn2(J2D_TRACE_INFO, "VKAllocator_FreePage: memoryType=%d, debugTotalPagesSize=%d",
-                page->debugMemoryType, alloc->pools[page->debugMemoryType].debugTotalPagesSize);
+    J2dTraceLn(J2D_TRACE_INFO, "VKAllocator_FreePage: memoryType=%d, debugTotalPagesSize=%d",
+               page->debugMemoryType, alloc->pools[page->debugMemoryType].debugTotalPagesSize);
 #endif
 }
 
@@ -377,9 +377,9 @@ static AllocationResult VKAllocator_AllocateForResource(VKMemoryRequirements* re
     // Adjust level to ensure proper alignment. Not very optimal, but this is a very rare case.
     while (blockSize % alignment != 0) { level++; blockSize <<= 1; }
 
-    J2dRlsTraceLn6(J2D_TRACE_VERBOSE2,
-                   "VKAllocator_Allocate: level=%d, blockSize=%d, size=%d, alignment=%d, memoryType=%d, dedicated=%d",
-                   level, blockSize, size, alignment, memoryType, dedicated);
+    J2dRlsTraceLn(J2D_TRACE_VERBOSE2,
+                  "VKAllocator_Allocate: level=%d, blockSize=%d, size=%d, alignment=%d, memoryType=%d, dedicated=%d",
+                  level, blockSize, size, alignment, memoryType, dedicated);
 
     if (!dedicated && level <= MAX_BLOCK_LEVEL) {
         // Try to sub-allocate.
@@ -492,9 +492,9 @@ void VKAllocator_Free(VKAllocator* allocator, VKMemory memory) {
         if ((pair->offset << 1U) == handle.offset) pair->firstFree = 1;
         else pair->secondFree = 1;
         VkBool32 cleared = VKAllocator_PushFreeBlockPair(data, pair, handle.pair, handle.level);
-        J2dRlsTraceLn3(J2D_TRACE_VERBOSE,
-                       "VKAllocator_Free: shared, level=%d, blockSize=%d, memoryType=%d",
-                       handle.level, BLOCK_SIZE << handle.level, data->memoryType);
+        J2dRlsTraceLn(J2D_TRACE_VERBOSE,
+                      "VKAllocator_Free: shared, level=%d, blockSize=%d, memoryType=%d",
+                      handle.level, BLOCK_SIZE << handle.level, data->memoryType);
         // If page is empty and not the last created, release it.
         if (cleared) {
             Pool* pool = &allocator->pools[data->memoryType];
@@ -515,7 +515,7 @@ void VKAllocator_Free(VKAllocator* allocator, VKMemory memory) {
         }
     } else {
         // Release dedicated allocation.
-        J2dRlsTraceLn2(J2D_TRACE_VERBOSE, "VKAllocator_Free: dedicated, level=%d, blockSize=%d", handle.level, BLOCK_SIZE << handle.level);
+        J2dRlsTraceLn(J2D_TRACE_VERBOSE, "VKAllocator_Free: dedicated, level=%d, blockSize=%d", handle.level, BLOCK_SIZE << handle.level);
         VKAllocator_FreePage(allocator, page, handle.page);
     }
 }
@@ -581,7 +581,7 @@ VKAllocator* VKAllocator_Create(VKDevice* device) {
     }
     VKEnv_GetInstance()->vkGetPhysicalDeviceMemoryProperties(device->physicalDevice, &allocator->memoryProperties);
 
-    J2dRlsTraceLn1(J2D_TRACE_INFO, "VKAllocator_Create: allocator=%p", allocator);
+    J2dRlsTraceLn(J2D_TRACE_INFO, "VKAllocator_Create: allocator=%p", allocator);
     return allocator;
 }
 
@@ -616,6 +616,6 @@ void VKAllocator_Destroy(VKAllocator* allocator) {
     }
     ARRAY_FREE(allocator->pages);
 
-    J2dRlsTraceLn1(J2D_TRACE_INFO, "VKAllocator_Destroy(%p)", allocator);
+    J2dRlsTraceLn(J2D_TRACE_INFO, "VKAllocator_Destroy(%p)", allocator);
     free(allocator);
 }
