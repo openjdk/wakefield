@@ -46,7 +46,8 @@ public class WLRoundedCornersManager {
 
     public static int roundCornerRadiusFor(RoundedCornerKind kind) {
         return switch (kind) {
-            case DEFAULT, FULL -> 24;
+            case DEFAULT -> 12;
+            case FULL -> 24;
             case NONE -> 0;
             case SMALL -> 8;
         };
