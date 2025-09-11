@@ -81,12 +81,6 @@ static AlphaType getSrcAlphaType(jshort srctype) {
         ALPHA_TYPE_PRE_MULTIPLIED : ALPHA_TYPE_STRAIGHT;
 }
 
-static void VKRenderer_FindStageBufferMemoryType(VKMemoryRequirements* requirements) {
-    VKAllocator_FindMemoryType(requirements, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT,
-                               VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-    VKAllocator_FindMemoryType(requirements, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, VK_ALL_MEMORY_PROPERTIES);
-}
-
 static void VKRenderer_DrawImage(VKImage* image, AlphaType alphaType, VkFormat format,
                                  VKPackedSwizzle swizzle, jint filter, VKSamplerWrap wrap,
                                  float sx1, float sy1, float sx2, float sy2,
@@ -433,66 +427,81 @@ void VKBlitLoops_Blit(JNIEnv *env,
  * Specialized blit method for copying a native Vulkan "Surface" to a system
  * memory ("Sw") surface.
  */
-void VKRenderer_SurfaceToSwBlit(JNIEnv* env, VKSDOps* src, SurfaceDataOps* dst,
-                                jint srcx, jint srcy, jint dstx, jint dsty, jint width, jint height) {
-    if (src == NULL) {
-        J2dRlsTraceLn(J2D_TRACE_ERROR, "VKRenderer_SurfaceToSwBlit: src is null")
-        return;
-    }
-    if (dst == NULL) {
-        J2dRlsTraceLn(J2D_TRACE_ERROR, "VKRenderer_SurfaceToSwBlit: dst is null")
-        return;
-    }
+void
+VKBlitLoops_SurfaceToSwBlit(JNIEnv *env,
+                            jlong pSrcOps, jlong pDstOps, jint dsttype,
+                            jint srcx, jint srcy, jint dstx, jint dsty,
+                            jint width, jint height)
+{
+    VKSDOps *srcOps = (VKSDOps *)jlong_to_ptr(pSrcOps);
+    SurfaceDataOps *dstOps = (SurfaceDataOps *)jlong_to_ptr(pDstOps);
+    SurfaceDataRasInfo srcInfo, dstInfo;
+
+    J2dTraceLn8(J2D_TRACE_INFO, "VKBlitLoops_SurfaceToSwBlit: (%p) (%d %d %d %d) -> (%p) (%d %d)",
+                srcOps, srcx, srcy, width, height, dstOps, dstx, dsty);
+
     if (width <= 0 || height <= 0) {
-        J2dTraceLn(J2D_TRACE_WARNING, "VKRenderer_SurfaceToSwBlit: dimensions are non-positive");
-        return;
-    }
-    VKDevice* device = src->device;
-    VKImage* image = src->image;
-    if (image == NULL) {
-        J2dRlsTraceLn(J2D_TRACE_ERROR, "VKRenderer_SurfaceToSwBlit: image is null")
+        J2dTraceLn(J2D_TRACE_WARNING,
+                   "VKBlitLoops_SurfaceToSwBlit: dimensions are non-positive");
         return;
     }
 
-    SurfaceDataRasInfo srcInfo = { .bounds = {
-        srcx,
-        srcy,
-        srcx + width,
-        srcy + height
-    }}, dstInfo = { .bounds = {
-        dstx,
-        dsty,
-        dstx + width,
-        dsty + height
-    }};
+    RETURN_IF_NULL(srcOps);
+    RETURN_IF_NULL(dstOps);
 
-    SurfaceData_IntersectBoundsXYXY(&srcInfo.bounds, 0, 0, (jint) image->extent.width, (jint) image->extent.height);
-    SurfaceData_IntersectBlitBounds(&dstInfo.bounds, &srcInfo.bounds, srcx - dstx, srcy - dsty);
+    VKDevice* device = srcOps->device;
+    VKImage* image = srcOps->image;
 
-    // NOTE: This function will modify the contents of the bounds field to represent the maximum available raster data.
-    if (dst->Lock(env, dst, &dstInfo, SD_LOCK_WRITE) != SD_SUCCESS) {
-        J2dTraceLn(J2D_TRACE_WARNING, "VKRenderer_SurfaceToSwBlit: could not acquire lock");
+    if (image == NULL || device == NULL) {
+        J2dRlsTraceLn2(J2D_TRACE_ERROR,
+                       "VKBlitLoops_SurfaceToSwBlit: image(%p) or device(%p) is NULL", image, device)
         return;
     }
-    if (dstInfo.bounds.x2 > dstInfo.bounds.x1 && dstInfo.bounds.y2 > dstInfo.bounds.y1) {
-        dst->GetRasInfo(env, dst, &dstInfo);
-        if (dstInfo.rasBase) {
-            srcx = srcx - dstx + dstInfo.bounds.x1;
-            srcy = srcy - dsty + dstInfo.bounds.y1;
+
+    srcInfo.bounds.x1 = srcx;
+    srcInfo.bounds.y1 = srcy;
+    srcInfo.bounds.x2 = srcx + width;
+    srcInfo.bounds.y2 = srcy + height;
+    dstInfo.bounds.x1 = dstx;
+    dstInfo.bounds.y1 = dsty;
+    dstInfo.bounds.x2 = dstx + width;
+    dstInfo.bounds.y2 = dsty + height;
+
+    SurfaceData_IntersectBoundsXYXY(&srcInfo.bounds,
+                                    0, 0, srcOps->image->extent.width, srcOps->image->extent.height);
+    SurfaceData_IntersectBlitBounds(&dstInfo.bounds, &srcInfo.bounds,
+                                    srcx - dstx, srcy - dsty);
+
+    if (dstOps->Lock(env, dstOps, &dstInfo, SD_LOCK_WRITE) != SD_SUCCESS) {
+        J2dTraceLn(J2D_TRACE_WARNING,
+                   "VKBlitLoops_SurfaceToSwBlit: could not acquire dst lock");
+        return;
+    }
+
+    if (srcInfo.bounds.x2 > srcInfo.bounds.x1 &&
+        srcInfo.bounds.y2 > srcInfo.bounds.y1)
+    {
+        dstOps->GetRasInfo(env, dstOps, &dstInfo);
+        do {
+            if (dstInfo.rasBase == NULL) {
+                J2dRlsTraceLn(J2D_TRACE_ERROR, "VKBlitLoops_SurfaceToSwBlit: could not get dst raster info");
+                break;
+            }
+            void *pDst = dstInfo.rasBase;
+            srcx = srcInfo.bounds.x1;
+            srcy = srcInfo.bounds.y1;
             dstx = dstInfo.bounds.x1;
             dsty = dstInfo.bounds.y1;
-            width = dstInfo.bounds.x2 - dstInfo.bounds.x1;
-            height = dstInfo.bounds.y2 - dstInfo.bounds.y1;
+            width = srcInfo.bounds.x2 - srcInfo.bounds.x1;
+            height = srcInfo.bounds.y2 - srcInfo.bounds.y1;
             jsize bufferScan = width * dstInfo.pixelStride;
             jsize bufferSize = bufferScan * height;
 
-            VKBuffer buffer;
-            VKMemory page = VKBuffer_CreateBuffers(device, VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                VKRenderer_FindStageBufferMemoryType, bufferSize, 0, &(uint32_t){1}, &buffer);
-            VK_RUNTIME_ASSERT(page != VK_NULL_HANDLE);
+            pDst = PtrAddBytes(pDst, dstx * dstInfo.pixelStride);
+            pDst = PtrPixelsRow(pDst, dsty, dstInfo.scanStride);
 
-            // Ensure all prior drawing to src surface have finished.
-            VKRenderer_FlushRenderPass(src);
+            VKRenderer_FlushRenderPass(srcOps);
+            VkCommandBuffer cb = VKRenderer_Record(device->renderer);
             {
                 VkImageMemoryBarrier barrier;
                 VKBarrierBatch barrierBatch = {};
@@ -502,6 +511,17 @@ void VKRenderer_SurfaceToSwBlit(JNIEnv* env, VKSDOps* src, SurfaceDataOps* dst,
                                    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
                 VKRenderer_RecordBarriers(device->renderer, NULL, NULL, &barrier, &barrierBatch);
             }
+
+            VKBuffer* buffer = VKBuffer_Create(device, bufferSize,
+                                               VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                                               VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                               VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+            if (buffer == NULL) {
+                J2dRlsTraceLn(J2D_TRACE_ERROR, "VKBlitLoops_SurfaceToSwBlit: could not create buffer");
+                break;
+            }
+
             VkBufferImageCopy region = {
                     .bufferOffset = 0,
                     .bufferRowLength = 0,
@@ -515,33 +535,34 @@ void VKRenderer_SurfaceToSwBlit(JNIEnv* env, VKSDOps* src, SurfaceDataOps* dst,
                     .imageOffset = {srcx, srcy, 0},
                     .imageExtent = {width, height, 1}
             };
-            device->vkCmdCopyImageToBuffer(VKRenderer_Record(device->renderer),
-                image->handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buffer.handle, 1, &region);
+
+            device->vkCmdCopyImageToBuffer(cb, image->handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                           buffer->handle,
+                                           1, &region);
             VKRenderer_Flush(device->renderer);
             VKRenderer_Sync(device->renderer);
-
-            void* srcData = VKAllocator_Map(device->allocator, page);
-            void* dstData = dstInfo.rasBase;
-            dstData = PtrAddBytes(dstData, dstx * dstInfo.pixelStride);
-            dstData = PtrPixelsRow(dstData, dsty, dstInfo.scanStride);
-            if (bufferScan == dstInfo.scanStride) {
-                // Tightly packed, copy in one go.
-                memcpy(dstData, srcData, bufferSize);
+            void* pixelData;
+            VK_IF_ERROR(device->vkMapMemory(device->handle,  buffer->range.memory,
+                                            0, VK_WHOLE_SIZE, 0, &pixelData))
+            {
+                J2dRlsTraceLn(J2D_TRACE_ERROR, "VKBlitLoops_SurfaceToSwBlit: could not map buffer memory");
             } else {
-                // Sparse, copy by scanlines.
-                for (jint i = 0; i < height; i++) {
-                    memcpy(dstData, srcData, bufferScan);
-                    srcData = PtrAddBytes(srcData, bufferScan);
-                    dstData = PtrAddBytes(dstData, dstInfo.scanStride);
+                if (bufferScan == dstInfo.scanStride) {
+                    // Tightly packed, copy in one go.
+                    memcpy(pDst, pixelData, bufferSize);
+                } else {
+                    // Sparse, copy by scanlines.
+                    for (jint i = 0; i < height; i++) {
+                        memcpy(pDst, pixelData, bufferScan);
+                        pixelData = PtrAddBytes(pixelData, bufferScan);
+                        pDst = PtrAddBytes(pDst, dstInfo.scanStride);
+                    }
                 }
+                device->vkUnmapMemory(device->handle, buffer->range.memory);
             }
-            VKAllocator_Unmap(device->allocator, page);
-            device->vkDestroyBuffer(device->handle, buffer.handle, NULL);
-            VKAllocator_Free(device->allocator, page);
-        } else {
-            J2dRlsTraceLn(J2D_TRACE_ERROR, "VKRenderer_SurfaceToSwBlit: could not get raster info");
-        }
-        SurfaceData_InvokeRelease(env, dst, &dstInfo);
+            VKBuffer_Destroy(device, buffer);
+        } while (0);
+        SurfaceData_InvokeRelease(env, dstOps, &dstInfo);
     }
-    SurfaceData_InvokeUnlock(env, dst, &dstInfo);
+    SurfaceData_InvokeUnlock(env, dstOps, &dstInfo);
 }

@@ -27,7 +27,6 @@
 #ifndef VKRenderer_h_Included
 #define VKRenderer_h_Included
 
-#include "SurfaceData.h"
 #include "VKTypes.h"
 #include "VKPipelines.h"
 
@@ -98,8 +97,11 @@ void VKBlitLoops_Blit(JNIEnv *env,
                        jdouble dx1, jdouble dy1,
                        jdouble dx2, jdouble dy2); // TODO refactor
 
-void VKRenderer_SurfaceToSwBlit(JNIEnv* env, VKSDOps* src, SurfaceDataOps* dst,
-                                jint srcx, jint srcy, jint dstx, jint dsty, jint width, jint height);
+void
+VKBlitLoops_SurfaceToSwBlit(JNIEnv *env,
+                            jlong pSrcOps, jlong pDstOps, jint dsttype,
+                            jint srcx, jint srcy, jint dstx, jint dsty,
+                            jint width, jint height); // TODO refactor
 
 // Drawing operations.
 
