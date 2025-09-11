@@ -298,7 +298,8 @@ JNIEXPORT void JNICALL Java_sun_java2d_vulkan_VKRenderQueue_flushBuffer
                         glyphListOrigX += ginfo->advanceX;
                         glyphListOrigY += ginfo->advanceY;
                     }
-                    if (ginfo->rowBytes == ginfo->width) continue;
+                    // 'format' is not defined here
+                    // if (ginfo->format != sun_font_StrikeCache_PIXEL_FORMAT_GREYSCALE) continue;
                     if (ginfo->height*ginfo->rowBytes == 0) continue;
                     VKRenderer_MaskFill((int) glyphx, (int) glyphy,
                                         ginfo->width, ginfo->height,
