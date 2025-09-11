@@ -48,6 +48,10 @@ VKRenderingContext* VKRenderer_GetContext() {
     return &context;
 }
 
+void VKRenderer_DisposeOnPrimaryComplete(VKRenderer* renderer, VKCleanupHandler handler, void* data) {
+    POOL_RETURN(renderer, renderer->cleanupQueue, ((VKCleanupEntry) { handler, data }));
+}
+
 static void VKRenderer_CleanupPendingResources(VKRenderer* renderer) {
     VKDevice* device = renderer->device;
     for (VKCleanupEntry entry; POOL_TAKE(renderer, renderer->cleanupQueue, entry);) entry.handler(device, entry.data);
