@@ -98,6 +98,11 @@ public class WLVKWindowSurfaceData extends VKSurfaceData
     }
 
     @Override
+    public boolean isOnScreen() {
+        return true;
+    }
+
+    @Override
     public void assignSurface(long surfacePtr) {
         assignWlSurface(surfacePtr);
         if (surfacePtr != 0) configure();

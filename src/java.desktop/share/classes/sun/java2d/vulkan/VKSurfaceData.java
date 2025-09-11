@@ -295,4 +295,6 @@ public abstract class VKSurfaceData extends SurfaceData
     public BufferedContext getContext() {
         return VKContext.INSTANCE;
     }
+
+    public abstract boolean isOnScreen();
 }

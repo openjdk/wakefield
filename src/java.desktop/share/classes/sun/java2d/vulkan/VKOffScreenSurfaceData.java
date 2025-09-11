@@ -82,4 +82,9 @@ public class VKOffScreenSurfaceData extends VKSurfaceData {
         }
         return result;
     }
+
+    @Override
+    public boolean isOnScreen() {
+        return false;
+    }
 }

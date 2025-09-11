@@ -52,9 +52,7 @@ struct VKSDOps {
     VkExtent2D     requestedExtent;
     VKDevice*      requestedDevice;
 
-    VKRenderPass*   renderPass;
-    ARRAY(VKSDOps*) dependentSurfaces; // Whose pending render passes read from the surface.
-    uint64_t        lastTimestamp; // When was this surface last used?
+    VKRenderPass*  renderPass;
 };
 
 typedef void (*VKWinSD_SurfaceResizeCallback)(VKWinSDOps* surface, VkExtent2D extent);
