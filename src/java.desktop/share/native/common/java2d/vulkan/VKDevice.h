@@ -56,8 +56,6 @@ struct VKDevice {
     ARRAY(jint)          supportedFormats;
     jint caps;
 
-    ARRAY(VkDescriptorPool) imageDescriptorPools;
-
     VKAllocator*     allocator;
     VKRenderer*      renderer;
     VKTexturePool*   texturePool;

@@ -108,12 +108,6 @@ typedef struct {
     VkImageAspectFlagBits aspect;
 } FormatGroup;
 
-typedef struct {
-    uint32_t barrierCount;
-    VkPipelineStageFlags srcStages;
-    VkPipelineStageFlags dstStages;
-} VKBarrierBatch;
-
 /**
  * Vulkan expects linear colors.
  * However Java2D expects legacy behavior, as if colors were blended in sRGB color space.

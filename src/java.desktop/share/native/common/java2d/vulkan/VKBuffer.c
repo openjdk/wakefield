@@ -30,6 +30,7 @@
 #include "VKAllocator.h"
 #include "VKBuffer.h"
 #include "VKDevice.h"
+#include "VKRenderer.h"
 
 const size_t VK_BUFFER_CREATE_THRESHOLD = 0xDC000;
 
@@ -179,14 +180,6 @@ VkDescriptorPool VKBuffer_CreateTexelBuffers(VKDevice* device, VkFormat format,
     return pool;
 }
 
-// TODO This is an internal API and should not be used from VKBuffer!
-typedef void (*VKCleanupHandler)(VKDevice* device, void* data);
-void VKRenderer_DisposeOnPrimaryComplete(VKRenderer* renderer, VKCleanupHandler hnd, void* ctx);
-VkCommandBuffer VKRenderer_Record(VKRenderer* renderer);
-void VKRenderer_RecordBarriers(VKRenderer* renderer,
-                               VkBufferMemoryBarrier* bufferBarriers, VKBarrierBatch* bufferBatch,
-                               VkImageMemoryBarrier* imageBarriers, VKBarrierBatch* imageBatch);
-
 VKBuffer* VKBuffer_Create(VKDevice* device, VkDeviceSize size,
                           VkBufferUsageFlags usage, VkMemoryPropertyFlags properties)
 {
@@ -241,10 +234,16 @@ static void VKBuffer_CopyBuffer(VKDevice* device, VKBuffer* srcBuffer, VKBuffer*
     {
         VkBufferMemoryBarrier barrier;
         VKBarrierBatch barrierBatch = {};
-        VKBuffer_AddBarrier(&barrier, &barrierBatch, dstBuffer,
-                            VK_PIPELINE_STAGE_TRANSFER_BIT,
-                            VK_ACCESS_TRANSFER_WRITE_BIT);
-        VKRenderer_RecordBarriers(device->renderer, &barrier, &barrierBatch, NULL, NULL);
+        VKRenderer_AddBufferBarrier(&barrier, &barrierBatch, dstBuffer,
+                                   VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                   VK_ACCESS_TRANSFER_WRITE_BIT);
+
+        if (barrierBatch.barrierCount > 0) {
+            device->vkCmdPipelineBarrier(cb, barrierBatch.srcStages, barrierBatch.dstStages,
+                                         0, 0, NULL,
+                                         barrierBatch.barrierCount, &barrier,
+                                         0, NULL);
+        }
     }
     VkBufferCopy copyRegion = {
             .srcOffset = 0,
@@ -257,15 +256,21 @@ static void VKBuffer_CopyBuffer(VKDevice* device, VKBuffer* srcBuffer, VKBuffer*
     {
         VkBufferMemoryBarrier barrier;
         VKBarrierBatch barrierBatch = {};
-        VKBuffer_AddBarrier(&barrier, &barrierBatch, dstBuffer,
-                            VK_PIPELINE_STAGE_TRANSFER_BIT,
-                            VK_ACCESS_TRANSFER_READ_BIT);
-        VKRenderer_RecordBarriers(device->renderer, &barrier, &barrierBatch, NULL, NULL);
+        VKRenderer_AddBufferBarrier(&barrier, &barrierBatch, dstBuffer,
+                                    VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                    VK_ACCESS_TRANSFER_READ_BIT);
+
+        if (barrierBatch.barrierCount > 0) {
+            device->vkCmdPipelineBarrier(cb, barrierBatch.srcStages, barrierBatch.dstStages,
+                                         0, 0, NULL,
+                                         barrierBatch.barrierCount, &barrier,
+                                         0, NULL);
+        }
     }
 }
 
 void VKBuffer_Dispose(VKDevice* device, void* ctx) {
-    VKBuffer* buffer = ctx;
+    VKBuffer* buffer = (VKBuffer*) ctx;
     VKBuffer_Destroy(device, buffer);
 }
 
@@ -305,10 +310,19 @@ VKBuffer *VKBuffer_CreateFromDataViaBuffer(VKDevice *device,
 
     VKBuffer_CopyBuffer(device, hostBuffer, buffer, dataSize);
     {
+        VkCommandBuffer cb = VKRenderer_Record(device->renderer);
         VkBufferMemoryBarrier barrier;
         VKBarrierBatch barrierBatch = {};
-        VKBuffer_AddBarrier(&barrier, &barrierBatch, buffer, stage, access);
-        VKRenderer_RecordBarriers(device->renderer, &barrier, &barrierBatch, NULL, NULL);
+        VKRenderer_AddBufferBarrier(&barrier, &barrierBatch, buffer,
+                                    stage, access);
+
+        if (barrierBatch.barrierCount > 0) {
+            device->vkCmdPipelineBarrier(cb, barrierBatch.srcStages,
+                                         barrierBatch.dstStages,
+                                         0, 0, NULL,
+                                         barrierBatch.barrierCount, &barrier,
+                                         0, NULL);
+        }
     }
     VKRenderer_DisposeOnPrimaryComplete(device->renderer, VKBuffer_Dispose, hostBuffer);
     return buffer;
@@ -344,10 +358,19 @@ VKBuffer *VKBuffer_CreateDirectFromData(VKDevice *device,
 
     device->vkUnmapMemory(device->handle, buffer->range.memory);
     {
+        VkCommandBuffer cb = VKRenderer_Record(device->renderer);
         VkBufferMemoryBarrier barrier;
         VKBarrierBatch barrierBatch = {};
-        VKBuffer_AddBarrier(&barrier, &barrierBatch, buffer, stage, access);
-        VKRenderer_RecordBarriers(device->renderer, &barrier, &barrierBatch, NULL, NULL);
+        VKRenderer_AddBufferBarrier(&barrier, &barrierBatch, buffer,
+                                    stage, access);
+
+        if (barrierBatch.barrierCount > 0) {
+            device->vkCmdPipelineBarrier(cb, barrierBatch.srcStages,
+                                         barrierBatch.dstStages,
+                                         0, 0, NULL,
+                                         barrierBatch.barrierCount, &barrier,
+                                         0, NULL);
+        }
     }
     return buffer;
 }
@@ -387,28 +410,5 @@ void VKBuffer_Destroy(VKDevice* device, VKBuffer* buffer) {
             device->vkFreeMemory(device->handle, buffer->range.memory, NULL);
         }
         free(buffer);
-    }
-}
-
-void VKBuffer_AddBarrier(VkBufferMemoryBarrier* barriers, VKBarrierBatch* batch,
-                         VKBuffer* buffer, VkPipelineStageFlags stage, VkAccessFlags access) {
-    assert(barriers != NULL && batch != NULL && buffer != NULL);
-    // TODO Even if stage, access and layout didn't change, we may still need a barrier against WaW hazard.
-    if (stage != buffer->lastStage || access != buffer->lastAccess) {
-        barriers[batch->barrierCount] = (VkBufferMemoryBarrier) {
-            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-            .srcAccessMask = buffer->lastAccess,
-            .dstAccessMask = access,
-            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .buffer = buffer->handle,
-            .offset = 0,
-            .size = VK_WHOLE_SIZE
-    };
-        batch->barrierCount++;
-        batch->srcStages |= buffer->lastStage;
-        batch->dstStages |= stage;
-        buffer->lastStage = stage;
-        buffer->lastAccess = access;
     }
 }

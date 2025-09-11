@@ -55,11 +55,45 @@ struct VKRenderingContext {
     ARRAY(VKIntVertex) clipSpanVertices;
 };
 
-VKRenderingContext* VKRenderer_GetContext();
+typedef struct {
+    uint32_t barrierCount;
+    VkPipelineStageFlags srcStages;
+    VkPipelineStageFlags dstStages;
+} VKBarrierBatch;
+
+typedef void (*VKDisposeHandler)(VKDevice* device, void* ctx);
 
 VKRenderer* VKRenderer_Create(VKDevice* device);
 
+/**
+ * Setup pipeline for drawing. Returns FALSE if surface is not yet ready for drawing.
+ */
+VkBool32 VKRenderer_Validate(VKShader shader, VkPrimitiveTopology topology, AlphaType inAlphaType);
+
+/**
+ * Record commands into primary command buffer (outside of a render pass).
+ * Recorded commands will be sent for execution via VKRenderer_Flush.
+ */
+VkCommandBuffer VKRenderer_Record(VKRenderer* renderer);
+
+/**
+ * Prepare image barrier info to be executed in batch, if needed.
+ */
+void VKRenderer_AddImageBarrier(VkImageMemoryBarrier* barriers, VKBarrierBatch* batch,
+                                VKImage* image, VkPipelineStageFlags stage, VkAccessFlags access, VkImageLayout layout);
+
+void VKRenderer_AddBufferBarrier(VkBufferMemoryBarrier* barriers, VKBarrierBatch* batch,
+                                VKBuffer* buffer, VkPipelineStageFlags stage,
+                                VkAccessFlags access);
+
+void VKRenderer_CreateImageDescriptorSet(VKRenderer* renderer, VkDescriptorPool* descriptorPool, VkDescriptorSet* set);
+
 void VKRenderer_Destroy(VKRenderer* renderer);
+
+/**
+ * Wait for all rendering commands to complete.
+ */
+void VKRenderer_Sync(VKRenderer* renderer);
 
 /**
  * Submit pending command buffer, completed render passes & presentation requests.
@@ -71,6 +105,16 @@ void VKRenderer_Flush(VKRenderer* renderer);
  */
 void VKRenderer_DestroyRenderPass(VKSDOps* surface);
 
+/**
+ * End render pass for the surface and record it into the primary command buffer,
+ * which will be executed on the next VKRenderer_Flush.
+ */
+VkBool32 VKRenderer_FlushRenderPass(VKSDOps* surface);
+
+
+void VKRenderer_DisposeOnPrimaryComplete(VKRenderer* renderer, VKDisposeHandler hnd, void* ctx);
+
+void VKRenderer_DisposePrimaryResources(VKRenderer* renderer);
 /**
  * Flush pending render pass and queue surface for presentation (if applicable).
  */
@@ -84,28 +128,8 @@ void VKRenderer_ConfigureSurface(VKSDOps* surface, VkExtent2D extent, VKDevice* 
 
 // Blit operations.
 
-void VKBlitLoops_IsoBlit(JNIEnv *env,
-                          jlong pSrcOps,
-                          jboolean xform, jint hint,
-                          jint sx1, jint sy1,
-                          jint sx2, jint sy2,
-                          jdouble dx1, jdouble dy1,
-                          jdouble dx2, jdouble dy2); // TODO refactor
-
-void VKBlitLoops_Blit(JNIEnv *env,
-                       jlong pSrcOps,
-                       jboolean xform, jint hint,
-                       jshort srctype,
-                       jint sx1, jint sy1,
-                       jint sx2, jint sy2,
-                       jdouble dx1, jdouble dy1,
-                       jdouble dx2, jdouble dy2); // TODO refactor
-
-void
-VKBlitLoops_SurfaceToSwBlit(JNIEnv *env,
-                            jlong pSrcOps, jlong pDstOps, jint dsttype,
-                            jint srcx, jint srcy, jint dstx, jint dsty,
-                            jint width, jint height); // TODO refactor
+void VKRenderer_TextureRender(VkDescriptorSet srcDescriptorSet, VkBuffer vertexBuffer, uint32_t vertexNum,
+                              jint filter, VKSamplerWrap wrap);
 
 // Drawing operations.
 
@@ -118,7 +142,10 @@ void VKRenderer_RenderParallelogram(VkBool32 fill,
 
 void VKRenderer_FillSpans(jint spanCount, jint *spans);
 
-void VKRenderer_MaskFill(jint x, jint y, jint w, jint h,
-                         jint maskoff, jint maskscan, jint masklen, uint8_t *mask);
+void
+VKRenderer_MaskFill(jint x, jint y, jint w, jint h,
+                    jint maskoff, jint maskscan, jint masklen, uint8_t *mask);
+
+VKRenderingContext* VKRenderer_GetContext();
 
 #endif //VKRenderer_h_Included

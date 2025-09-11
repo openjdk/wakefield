@@ -529,6 +529,8 @@ VKRenderPassContext* VKPipelines_GetRenderPassContext(VKPipelineContext* pipelin
     return renderPassContext;
 }
 
+// static VKPipelineInfo VKPipelines_
+
 VKPipelineInfo VKPipelines_GetPipelineInfo(VKRenderPassContext* renderPassContext, VKPipelineDescriptor descriptor) {
     assert(renderPassContext != NULL);
     VKPipelineInfo info = MAP_AT(renderPassContext->pipelines, descriptor);
