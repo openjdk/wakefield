@@ -50,6 +50,7 @@ import java.awt.KeyboardFocusManager;
 import java.awt.Label;
 import java.awt.MenuComponent;
 import java.awt.Panel;
+import java.awt.Point;
 import java.awt.RenderingHints;
 import java.awt.ScrollPane;
 import java.awt.Scrollbar;
@@ -2017,7 +2018,6 @@ public abstract class SunToolkit extends Toolkit
     public static boolean isSystemGenerated(AWTEvent e) {
         return AWTAccessor.getAWTEventAccessor().isSystemGenerated(e);
     }
-
 } // class SunToolkit
 
 

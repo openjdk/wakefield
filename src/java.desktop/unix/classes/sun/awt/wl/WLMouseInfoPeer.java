@@ -24,11 +24,16 @@
  */
 package sun.awt.wl;
 
+import sun.awt.SunToolkit;
+
 import java.awt.Point;
 import java.awt.Window;
 import java.awt.peer.MouseInfoPeer;
 
-public class WLMouseInfoPeer implements MouseInfoPeer  {
+public class WLMouseInfoPeer implements MouseInfoPeer {
+    private final Object mouseDeltaLock = new Object();
+    private double mouseDeltaX = 0.0;
+    private double mouseDeltaY = 0.0;
 
     @Override
     public int fillPointWithCoords(Point point) {
@@ -55,4 +60,10 @@ public class WLMouseInfoPeer implements MouseInfoPeer  {
         return HOLDER.instance;
     }
 
+    void accumulatePointerDelta(double dx, double dy) {
+        synchronized (mouseDeltaLock) {
+            mouseDeltaX += dx;
+            mouseDeltaY += dy;
+        }
+    }
 }
