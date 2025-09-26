@@ -30,6 +30,7 @@ import sun.java2d.SunGraphics2D;
 
 import javax.swing.JRootPane;
 import javax.swing.RootPaneContainer;
+import java.awt.AWTEvent;
 import java.awt.AlphaComposite;
 import java.awt.Color;
 import java.awt.Component;
@@ -96,7 +97,7 @@ public class WLWindowPeer extends WLComponentPeer implements WindowPeer {
 
     @Override
     protected void wlSetVisible(boolean v) {
-        if (!v) ungrab();
+        if (!v) ungrab(true);
 
         if (v && targetIsWlPopup() && shouldBeFocusedOnShowing()) {
             requestWindowFocus();
@@ -201,7 +202,7 @@ public class WLWindowPeer extends WLComponentPeer implements WindowPeer {
 
     @Override
     public void dispose() {
-        ungrab();
+        ungrab(true);
         resetCornerMasks();
         super.dispose();
     }
@@ -243,20 +244,29 @@ public class WLWindowPeer extends WLComponentPeer implements WindowPeer {
 
     public void grab() {
         if (grabbingWindow != null && !isGrabbing()) {
-            grabbingWindow.ungrab();
+            grabbingWindow.ungrab(false);
         }
         grabbingWindow = this;
     }
 
-    public void ungrab() {
+    public void ungrab(boolean externalUngrab) {
         if (isGrabbing()) {
             grabbingWindow = null;
-            WLToolkit.postEvent(new UngrabEvent(getTarget()));
+            if (externalUngrab) {
+                WLToolkit.postEvent(new UngrabEvent(getTarget()));
+            }
         }
     }
 
     private boolean isGrabbing() {
         return this == grabbingWindow;
+    }
+
+    @Override
+    void handleJavaWindowFocusEvent(AWTEvent e) {
+        if (e.getID() == WindowEvent.WINDOW_LOST_FOCUS) {
+            ungrab(true);
+        }
     }
 
     private boolean canPaintRoundedCorners() {
