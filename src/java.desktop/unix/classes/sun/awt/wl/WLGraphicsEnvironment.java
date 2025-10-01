@@ -26,6 +26,7 @@
 
 package sun.awt.wl;
 
+import java.awt.AWTError;
 import java.awt.Dimension;
 import java.awt.GraphicsConfiguration;
 import java.awt.GraphicsDevice;
@@ -52,6 +53,8 @@ public class WLGraphicsEnvironment extends SunGraphicsEnvironment {
 
     private static final boolean debugScaleEnabled;
     private final Dimension totalDisplayBounds = new Dimension();
+
+    private final List<WLGraphicsDevice> devices = new ArrayList<>(5);
 
     @SuppressWarnings("restricted")
     private static void loadAwt() {
@@ -94,14 +97,29 @@ public class WLGraphicsEnvironment extends SunGraphicsEnvironment {
     }
 
     @Override
+    public GraphicsDevice getDefaultScreenDevice() {
+        synchronized (devices) {
+            if (devices.isEmpty()) {
+                throw new AWTError("no screen devices");
+            }
+            return devices.getFirst();
+        }
+    }
+
+    @Override
+    public synchronized GraphicsDevice[] getScreenDevices() {
+        synchronized (devices) {
+            return devices.toArray(new GraphicsDevice[0]);
+        }
+    }
+
+    @Override
     public boolean isDisplayLocal() {
         return true;
     }
 
-    private final List<WLGraphicsDevice> devices = new ArrayList<>(5);
-
     private void notifyOutputConfigured(String name, String make, String model, int wlID,
-                                        int x, int y, int xLogical, int yLogical,
+                                        int x, int y,
                                         int width, int height,
                                         int widthLogical, int heightLogical,
                                         int widthMm, int heightMm,
@@ -109,39 +127,33 @@ public class WLGraphicsEnvironment extends SunGraphicsEnvironment {
         // Called from native code whenever a new output appears or an existing one changes its properties
         // NB: initially called during WLToolkit.initIDs() on the main thread; later on EDT.
         if (log.isLoggable(Level.FINE)) {
-            log.fine(String.format("Output configured id=%d at (%d, %d) (%d, %d logical) %dx%d (%dx%d logical) %dx scale",
-                    wlID, x, y, xLogical, yLogical, width, height, widthLogical, heightLogical, scale));
+            log.fine(String.format("Output configured id=%d at (%d, %d) %dx%d (%dx%d logical) %dx scale",
+                    wlID, x, y, width, height, widthLogical, heightLogical, scale));
         }
 
-        String humanID =
-                (name != null ? name + " " : "")
-                + (make != null ? make + " " : "")
-                + (model != null ? model : "");
-        synchronized (devices) {
-            boolean newOutput = true;
-            for (int i = 0; i < devices.size(); i++) {
-                final WLGraphicsDevice gd = devices.get(i);
-                if (gd.getID() == wlID) {
-                    newOutput = false;
-                    if (gd.isSameDeviceAs(wlID, x, y, xLogical, yLogical)) {
-                        // These coordinates and the size are not scaled.
-                        gd.updateConfiguration(humanID, width, height, widthLogical, heightLogical, scale);
-                    } else {
-                        final WLGraphicsDevice updatedDevice = WLGraphicsDevice.createWithConfiguration(wlID, humanID,
-                                x, y, xLogical, yLogical, width, height, widthLogical, heightLogical,
-                                widthMm, heightMm, scale);
-                        devices.set(i, updatedDevice);
-                        gd.invalidate(updatedDevice);
-                    }
-                    break;
-                }
+        // Logical size comes from an optional protocol, so take the data from the main one, if absent
+        if (widthLogical == 0) widthLogical = width;
+        if (heightLogical == 0) heightLogical = height;
+        String humanID = deviceNameFrom(name, make, model);
+
+        WLGraphicsDevice gd = deviceWithID(wlID);
+        if (gd != null) {
+            // Some properties of an existing device have changed; update the existing device and
+            // let all the windows it hosts know about the change.
+            gd.updateConfiguration(humanID, x, y, width, height, widthLogical, heightLogical, widthMm, heightMm, scale);
+        } else {
+            WLGraphicsDevice newGD = WLGraphicsDevice.createWithConfiguration(wlID, humanID,
+                    x, y, width, height, widthLogical, heightLogical,
+                    widthMm, heightMm, scale);
+            synchronized (devices) {
+                devices.add(newGD);
             }
-            if (newOutput) {
-                final WLGraphicsDevice gd = WLGraphicsDevice.createWithConfiguration(wlID, humanID,
-                        x, y, xLogical, yLogical, width, height, widthLogical, heightLogical,
-                        widthMm, heightMm, scale);
-                devices.add(gd);
-            }
+        }
+
+        if (LogDisplay.ENABLED) {
+            double effectiveScale = effectiveScaleFrom(scale);
+            LogDisplay log = (gd == null) ? LogDisplay.ADDED : LogDisplay.CHANGED;
+            log.log(wlID, (int) (width / effectiveScale) + "x" + (int) (height / effectiveScale), effectiveScale);
         }
 
         updateTotalDisplayBounds();
@@ -150,6 +162,12 @@ public class WLGraphicsEnvironment extends SunGraphicsEnvironment {
         if (WLToolkit.isInitialized()) {
             displayChanged();
         }
+    }
+
+    private static String deviceNameFrom(String name, String make, String model) {
+        return (name != null ? name + " " : "")
+                + (make != null ? make + " " : "")
+                + (model != null ? model : "");
     }
 
     private WLGraphicsDevice getSimilarDevice(WLGraphicsDevice modelDevice) {
@@ -175,42 +193,33 @@ public class WLGraphicsEnvironment extends SunGraphicsEnvironment {
             log.fine(String.format("Output destroyed id=%d", wlID));
         }
         // NB: id may *not* be that of any output; if so, just ignore this event.
-        synchronized (devices) {
-            final Optional<WLGraphicsDevice> deviceOptional = devices.stream()
-                    .filter(device -> device.getID() == wlID)
-                    .findFirst();
-            if (deviceOptional.isPresent()) {
-                final WLGraphicsDevice destroyedDevice = deviceOptional.get();
-                devices.remove(destroyedDevice);
-                final WLGraphicsDevice similarDevice = getSimilarDevice(destroyedDevice);
-                if (similarDevice != null) destroyedDevice.invalidate(similarDevice);
+        WLGraphicsDevice gd = deviceWithID(wlID);
+        if (gd != null) {
+            if (LogDisplay.ENABLED) {
+                WLGraphicsConfig config = (WLGraphicsConfig) gd.getDefaultConfiguration();
+                Rectangle bounds = config.getBounds();
+                LogDisplay.REMOVED.log(wlID, bounds.width + "x" + bounds.height, config.getEffectiveScale());
             }
+            synchronized (devices) {
+                devices.remove(gd);
+            }
+            final WLGraphicsDevice similarDevice = getSimilarDevice(gd);
+            if (similarDevice != null) gd.invalidate(similarDevice);
         }
 
         updateTotalDisplayBounds();
         displayChanged();
     }
 
-    WLGraphicsDevice notifySurfaceEnteredOutput(WLComponentPeer wlComponentPeer, int wlOutputID) {
+    WLGraphicsDevice deviceWithID(int wlOutputID) {
         synchronized (devices) {
             for (WLGraphicsDevice gd : devices) {
                 if (gd.getID() == wlOutputID) {
                     return gd;
                 }
             }
-            return null;
         }
-    }
-
-    WLGraphicsDevice notifySurfaceLeftOutput(WLComponentPeer wlComponentPeer, int wlOutputID) {
-        synchronized (devices) {
-            for (WLGraphicsDevice gd : devices) {
-                if (gd.getID() == wlOutputID) {
-                    return gd;
-                }
-            }
-            return null;
-        }
+        return null;
     }
 
     public Dimension getTotalDisplayBounds() {
@@ -220,16 +229,14 @@ public class WLGraphicsEnvironment extends SunGraphicsEnvironment {
     }
 
     private void updateTotalDisplayBounds() {
+        Rectangle virtualBounds = new Rectangle();
         synchronized (devices) {
-            Rectangle virtualBounds = new Rectangle();
-            for (GraphicsDevice gd : devices) {
-                for (GraphicsConfiguration gc : gd.getConfigurations()) {
-                    virtualBounds = virtualBounds.union(gc.getBounds());
-                }
+            for (var gd : devices) {
+                virtualBounds = virtualBounds.union(gd.getBounds());
             }
-            synchronized (totalDisplayBounds) {
-                totalDisplayBounds.setSize(virtualBounds.getSize());
-            }
+        }
+        synchronized (totalDisplayBounds) {
+            totalDisplayBounds.setSize(virtualBounds.getSize());
         }
     }
 
