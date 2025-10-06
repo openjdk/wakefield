@@ -168,7 +168,7 @@ $(eval $(call SetupJdkLibrary, BUILD_LIBAWT, \
 # Compile Vulkan shaders
 define compile-spirv
   $(call MakeTargetDir)
-  $(VULKAN_SHADER_COMPILER) '$(call DecodeSpace, $@)' '$(call DecodeSpace, $<)'
+  $(VULKAN_SHADER_COMPILER) -D$(call uppercase,$(patsubst .%,STAGE_%,$(suffix $<))) -o '$(call DecodeSpace, $@)' '$(call DecodeSpace, $<)'
 endef
 spirv-name = $(strip $1).h
 
