@@ -955,7 +955,8 @@ public class WLToolkit extends UNIXToolkit implements Runnable {
     @Override
     public boolean isModalityTypeSupported(Dialog.ModalityType modalityType) {
         return (modalityType == Dialog.ModalityType.MODELESS) ||
-                (modalityType == Dialog.ModalityType.APPLICATION_MODAL);
+                (modalityType == Dialog.ModalityType.APPLICATION_MODAL) ||
+                (modalityType == Dialog.ModalityType.DOCUMENT_MODAL);
     }
 
     @Override
