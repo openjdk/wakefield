@@ -46,7 +46,8 @@ import java.awt.event.InputEvent;
  * @param isPointerOverSurface true if the mouse pointer has entered a surface and has not left yet
  * @param latestInputSerial the serial of the latest input event (key or pointer button press)
  */
-record WLInputState(WLPointerEvent eventWithSurface,
+record WLInputState(WLPointerEvent currentEvent,
+                    WLPointerEvent eventWithSurface,
                     long pointerEnterSerial,
                     long pointerButtonSerial,
                     long keyboardEnterSerial,
@@ -77,7 +78,7 @@ record WLInputState(WLPointerEvent eventWithSurface,
             int surfaceY) {}
 
     static WLInputState initialState() {
-        return new WLInputState(null, 0, 0, 0, 0, null, null,
+        return new WLInputState(null, null, 0, 0, 0, 0, null, null,
                 null, 0, 0, false, 0);
     }
 
@@ -108,6 +109,7 @@ record WLInputState(WLPointerEvent eventWithSurface,
                 ? pointerEvent.getSerial() : latestInputSerial;
 
         return new WLInputState(
+                pointerEvent,
                 newEventWithSurface,
                 newPointerEnterSerial,
                 newPointerButtonSerial,
@@ -124,6 +126,7 @@ record WLInputState(WLPointerEvent eventWithSurface,
 
     public WLInputState updatedFromKeyEvent(long serial) {
         return new WLInputState(
+                currentEvent,
                 eventWithSurface,
                 pointerEnterSerial,
                 pointerButtonSerial,
@@ -141,6 +144,7 @@ record WLInputState(WLPointerEvent eventWithSurface,
     public WLInputState updatedFromKeyboardEnterEvent(long serial, long surfacePtr) {
         // "The compositor must send the wl_keyboard.modifiers event after this event".
         return new WLInputState(
+                currentEvent,
                 eventWithSurface,
                 pointerEnterSerial,
                 pointerButtonSerial,
@@ -160,6 +164,7 @@ record WLInputState(WLPointerEvent eventWithSurface,
         final int oldPointerModifiers = modifiers & WLPointerEvent.PointerButtonCodes.combinedMask();
         final int newModifiers = oldPointerModifiers | keyboardModifiers;
         return new WLInputState(
+                currentEvent,
                 eventWithSurface,
                 pointerEnterSerial,
                 pointerButtonSerial,
@@ -185,6 +190,7 @@ record WLInputState(WLPointerEvent eventWithSurface,
         // Note: Wayland doesn't report failure when a stale serial is passed.
         final int newModifiers = modifiers & WLPointerEvent.PointerButtonCodes.combinedMask();
         return new WLInputState(
+                currentEvent,
                 eventWithSurface,
                 pointerEnterSerial,
                 0,
@@ -204,6 +210,7 @@ record WLInputState(WLPointerEvent eventWithSurface,
             // When a window is hidden, we don't receive the keyboard.leave event, but the surface
             // becomes stale and its use dangerous, so must clear it out.
             return new WLInputState(
+                    currentEvent,
                     eventWithSurface,
                     pointerEnterSerial,
                     pointerButtonSerial,
@@ -223,6 +230,7 @@ record WLInputState(WLPointerEvent eventWithSurface,
 
     public WLInputState resetPointerState() {
         return new WLInputState(
+                currentEvent,
                 eventWithSurface,
                 pointerEnterSerial,
                 pointerButtonSerial,
@@ -301,6 +309,10 @@ record WLInputState(WLPointerEvent eventWithSurface,
 
     public boolean hasPointerButtonPressed() {
         return WLPointerEvent.PointerButtonCodes.anyMatchMask(modifiers);
+    }
+
+    public boolean hasPointerDragged() {
+        return currentEvent != null ? (currentEvent.hasMotionEvent() && hasPointerButtonPressed()) : false;
     }
 
     public int getPointerX() {
