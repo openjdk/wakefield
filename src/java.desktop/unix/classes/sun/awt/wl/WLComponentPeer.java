@@ -1271,7 +1271,8 @@ public class WLComponentPeer implements ComponentPeer, WLSurfaceSizeListener {
 
                 final boolean isButtonReleased = !e.getIsButtonPressed();
                 final boolean wasSameButtonPressed = oldInputState.hasThisPointerButtonPressed(e.getButtonCode());
-                final boolean isButtonClicked = isButtonReleased && wasSameButtonPressed;
+                final boolean wasPointerDragged = oldInputState.hasPointerDragged();
+                final boolean isButtonClicked = isButtonReleased && wasSameButtonPressed && !wasPointerDragged;
                 if (isButtonClicked) {
                     final MouseEvent mouseClickEvent = new MouseEvent(getTarget(),
                             MouseEvent.MOUSE_CLICKED,
